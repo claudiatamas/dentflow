@@ -19,7 +19,8 @@ import MedicalRecords from './assets/pages/MedicalRecords';
 import ActivityPage from './assets/pages/ActivityPage';
 import HelpPage from './assets/pages/HelpPage';
 import AdminHelpPage from './assets/pages/AdminHelpPage';
-
+import AppointmentsListDoctor from './assets/pages/AppointmentsListDoctor';
+import AppointmentsListPatient from './assets/pages/AppointmentsListPatient';
 function App() {
   return (
     <Router>
@@ -43,6 +44,8 @@ function App() {
         <Route path="/activity_user" element={<ActivityPage/>}/>
         <Route path="/help_user" element={<HelpPage/>}/>
         <Route path="/help_admin" element={<AdminHelpPage/>}/>
+        <Route path="/appointments_doctor" element={<AppointmentsListDoctor />} />
+        <Route path="/appointments_patient" element={<AppointmentsListPatient />} />
       </Routes>
     </Router>
   );

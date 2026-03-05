@@ -455,3 +455,21 @@ class TicketMessage(Base):
 
     ticket = relationship("SupportTicket", back_populates="messages")
     user = relationship("User")
+
+
+#================NOTIFICATIONS==============
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    type        = Column(String(60), nullable=False)
+    title       = Column(String(255), nullable=False)
+    body        = Column(Text, nullable=False)
+    is_read     = Column(Boolean, nullable=False, default=False)
+    entity_type = Column(String(50), nullable=True)
+    entity_id   = Column(Integer, nullable=True)
+    created_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    user = relationship("User")

@@ -14,6 +14,7 @@ import shutil
 import os
 from fastapi.staticfiles import StaticFiles
 from collections import defaultdict
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from dependencies import get_db
 from database import SessionLocal
@@ -31,7 +32,8 @@ from models import (
     Feedback,
     Message, Treatment, MedicalRecord, Prescription, MedicalDocument,
     SupportTicket,
-    TicketMessage
+    TicketMessage,
+    Notification
 )
 from schemas import *
 # ==================== Configuration ====================
@@ -437,6 +439,20 @@ def delete_account(
     return None
 
 
+@app.get("/doctors/me")
+def get_my_doctor_profile(
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user)
+):
+    if current_user.role != "doctor":
+        raise HTTPException(status_code=403, detail="Not a doctor")
+    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    return {"doctor_id": doctor.id}
+
+
+
 @app.get("/uploads/{filename}")
 async def get_uploaded_file(filename: str):
     """Servește fișierele uploadate"""
@@ -611,7 +627,6 @@ def get_low_stock_alerts(
     
     return {"alerts": alerts}
 
-
 @app.post("/stock", response_model=StockResponse, status_code=status.HTTP_201_CREATED)
 def add_stock(
     stock_data: StockUpdate,
@@ -646,7 +661,23 @@ def add_stock(
         )
         db.add(stock_change)
         db.commit()
-        
+
+        # ── Alertă stoc scăzut ──
+        if existing_stock.quantity < material.min_quantity:
+            existing_notif = db.query(Notification).filter(
+                Notification.user_id == current_user.id,
+                Notification.type == "low_stock",
+                Notification.entity_id == material.id,
+                Notification.is_read == False,
+            ).first()
+            if not existing_notif:
+                create_notification(db, current_user.id,
+                    type="low_stock",
+                    title="Low Stock Alert",
+                    body=f"{material.name} is running low ({float(existing_stock.quantity)} {material.unit} remaining).",
+                    entity_type="stock", entity_id=material.id)
+                db.commit()
+
         return existing_stock
     else:
         if stock_data.quantity_change < 0:
@@ -669,10 +700,18 @@ def add_stock(
         )
         db.add(stock_change)
         db.commit()
-        
+
+        # ── Alertă stoc scăzut (și la stock nou) ──
+        if new_stock.quantity < material.min_quantity:
+            create_notification(db, current_user.id,
+                type="low_stock",
+                title="Low Stock Alert",
+                body=f"{material.name} is running low ({float(new_stock.quantity)} {material.unit} remaining).",
+                entity_type="stock", entity_id=material.id)
+            db.commit()
+
         return new_stock
-
-
+    
 @app.patch("/stock/{material_id}", response_model=StockResponse)
 def update_stock_quantity(
     material_id: int,
@@ -705,7 +744,24 @@ def update_stock_quantity(
     )
     db.add(stock_change)
     db.commit()
-    
+
+    # ── Alertă stoc scăzut ──
+    mat = db.query(Material).filter(Material.id == material_id).first()
+    if mat and stock.quantity < mat.min_quantity:
+        existing_notif = db.query(Notification).filter(
+            Notification.user_id == current_user.id,
+            Notification.type == "low_stock",
+            Notification.entity_id == mat.id,
+            Notification.is_read == False,
+        ).first()
+        if not existing_notif:
+            create_notification(db, current_user.id,
+                type="low_stock",
+                title="Low Stock Alert",
+                body=f"{mat.name} is running low ({float(stock.quantity)} {mat.unit} remaining).",
+                entity_type="stock", entity_id=mat.id)
+            db.commit()
+
     return stock
 
 
@@ -1183,6 +1239,67 @@ def is_time_slot_available(
     return True
 
 
+@app.get("/appointments/available-slots")
+def get_available_slots(
+    doctor_id: int,
+    date: str,                        # format: "2025-03-15"
+    duration_minutes: int = 30,
+    exclude_appointment_id: int = None,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user)
+):
+    """
+    Returnează lista de sloturi libere pentru un doctor într-o zi dată.
+    Fiecare slot are start_time și end_time.
+    """
+    from datetime import datetime, timedelta
+
+    # Parsăm data
+    try:
+        appointment_date = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+    # Verificăm work schedule pentru ziua respectivă (0=Mon, 6=Sun)
+    work_schedule = db.query(WorkSchedule).filter(
+        WorkSchedule.doctor_id == doctor_id,
+        WorkSchedule.day_of_week == appointment_date.weekday()
+    ).first()
+
+    if not work_schedule:
+        return {"slots": [], "message": "Doctor does not work on this day."}
+
+    # Generăm toate sloturile posibile din work schedule
+    available_slots = []
+    slot_duration = timedelta(minutes=duration_minutes)
+
+    current_start = datetime.combine(appointment_date.date(), work_schedule.start_time)
+    work_end      = datetime.combine(appointment_date.date(), work_schedule.end_time)
+
+    while current_start + slot_duration <= work_end:
+        current_end = current_start + slot_duration
+
+        slot_available = is_time_slot_available(
+            db=db,
+            doctor_id=doctor_id,
+            appointment_date=appointment_date,
+            start_time=current_start.time(),
+            end_time=current_end.time(),
+            exclude_appointment_id=exclude_appointment_id
+        )
+
+        if slot_available:
+            available_slots.append({
+                "start_time": current_start.strftime("%H:%M"),
+                "end_time":   current_end.strftime("%H:%M"),
+            })
+
+        current_start += slot_duration
+
+    return {"slots": available_slots}
+
+
+
 @app.get("/appointments", response_model=List[AppointmentOut])
 def get_appointments(
     db: Session = Depends(get_db),
@@ -1281,13 +1398,37 @@ def create_appointment(
         end_time=appointment_in.end_time,
         description=appointment_in.description,
         message=appointment_in.message,
-        status="pending",
+        status="confirmed" if current_user.role == "doctor" else "pending",
         duration_minutes=appointment_in.duration_minutes or 30
     )
     
     db.add(new_appointment)
     db.commit()
     db.refresh(new_appointment)
+
+    # ── Notificare doctor: programare nouă ──
+    doctor_user = db.query(DBUser).filter(
+        DBUser.id == db.query(Doctor).filter(Doctor.id == target_doctor_id).first().user_id
+    ).first()
+    if doctor_user:
+        create_notification(db, doctor_user.id,
+            type="appointment_status",
+            title="New Appointment Request",
+            body=f"{current_user.first_name} {current_user.last_name} has requested an appointment.",
+            entity_type="appointment", entity_id=new_appointment.id)
+
+    # ── Notificare pacient: confirmare creare ──
+    patient_user = db.query(DBUser).filter(
+        DBUser.id == db.query(Patient).filter(Patient.id == target_patient_id).first().user_id
+    ).first()
+    if patient_user and patient_user.id != current_user.id:
+        create_notification(db, patient_user.id,
+            type="appointment_status",
+            title="Appointment Scheduled",
+            body=f"Your appointment has been scheduled successfully.",
+            entity_type="appointment", entity_id=new_appointment.id)
+
+    db.commit()
     return new_appointment
 
 
@@ -1331,6 +1472,48 @@ def update_appointment(
 
     db.commit()
     db.refresh(appointment)
+
+    # ── Notificări status schimbat ──
+    new_status = appointment.status
+    patient = db.query(Patient).filter(Patient.id == appointment.patient_id).first()
+    doctor_obj = db.query(Doctor).filter(Doctor.id == appointment.doctor_id).first()
+
+    if current_user.role == "doctor" and patient:
+        # Doctorul a modificat → notifică pacientul
+        patient_user = db.query(DBUser).filter(DBUser.id == patient.user_id).first()
+        if patient_user:
+            status_messages = {
+                "confirmed":  "Your appointment has been confirmed!",
+                "cancelled":  "Your appointment has been cancelled.",
+                "finalised":  "Your appointment is complete.",
+                "pending":    "Your appointment details have been updated.",
+            }
+            body = status_messages.get(new_status, f"Your appointment status changed to {new_status}.")
+            create_notification(db, patient_user.id,
+                type="appointment_status",
+                title="Appointment Updated",
+                body=body,
+                entity_type="appointment", entity_id=appointment.id)
+
+            # Dacă finalizat → cere feedback
+            if new_status == "finalised":
+                create_notification(db, patient_user.id,
+                    type="feedback_request",
+                    title="How was your appointment?",
+                    body="Your appointment is complete. Please leave feedback for your doctor.",
+                    entity_type="appointment", entity_id=appointment.id)
+
+    elif current_user.role == "patient" and doctor_obj:
+        # Pacientul a modificat → notifică doctorul
+        doctor_user = db.query(DBUser).filter(DBUser.id == doctor_obj.user_id).first()
+        if doctor_user:
+            create_notification(db, doctor_user.id,
+                type="appointment_status",
+                title="Appointment Change Request",
+                body=f"{current_user.first_name} {current_user.last_name} has requested changes to an appointment.",
+                entity_type="appointment", entity_id=appointment.id)
+
+    db.commit()
     return appointment
 
 
@@ -1492,7 +1675,19 @@ def patient_request_appointment_change(
     # 10. Salvăm în DB
     db.commit()
     db.refresh(appointment)
-    
+
+    # ── Notifică doctorul ──
+    doctor_obj = db.query(Doctor).filter(Doctor.id == appointment.doctor_id).first()
+    if doctor_obj:
+        doctor_user = db.query(DBUser).filter(DBUser.id == doctor_obj.user_id).first()
+        if doctor_user:
+            create_notification(db, doctor_user.id,
+                type="appointment_status",
+                title="Appointment Change Request",
+                body=f"{current_user.first_name} {current_user.last_name} has requested changes to an appointment.",
+                entity_type="appointment", entity_id=appointment.id)
+        db.commit()
+
     return appointment
 
 
@@ -2516,6 +2711,14 @@ def send_message(
     db.commit()
     db.refresh(new_message)
 
+    # ── Notificare receptor ──
+    create_notification(db, msg_data.receiver_id,
+        type="new_message",
+        title="New Message",
+        body=f"{current_user.first_name} {current_user.last_name} sent you a message.",
+        entity_type="message", entity_id=new_message.id)
+    db.commit()
+
     return {
         "id": new_message.id,
         "sender_id": new_message.sender_id,
@@ -2795,6 +2998,17 @@ def update_medical_record(
 
     db.commit()
     db.refresh(record)
+
+    # ── Notifică pacientul ──
+    patient_obj = db.query(Patient).filter(Patient.id == record.patient_id).first()
+    if patient_obj:
+        create_notification(db, patient_obj.user_id,
+            type="medical_record_updated",
+            title="Medical Record Updated",
+            body="Your doctor has updated your medical record.",
+            entity_type="medical_record", entity_id=record.id)
+        db.commit()
+
     return serialize_medical_record(record, db)
 
 
@@ -2848,6 +3062,17 @@ def add_treatment(
     record.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(treatment)
+
+    # ── Notifică pacientul ──
+    patient_obj = db.query(Patient).filter(Patient.id == record.patient_id).first()
+    if patient_obj:
+        create_notification(db, patient_obj.user_id,
+            type="medical_record_updated",
+            title="New Treatment Added",
+            body=f"Dr. {current_user.last_name} added a new treatment to your medical record.",
+            entity_type="medical_record", entity_id=record.id)
+        db.commit()
+
     return treatment
 
 
@@ -2930,6 +3155,17 @@ def add_prescription(
     record.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(prescription)
+
+    # ── Notifică pacientul ──
+    patient_obj = db.query(Patient).filter(Patient.id == record.patient_id).first()
+    if patient_obj:
+        create_notification(db, patient_obj.user_id,
+            type="medical_record_updated",
+            title="New Prescription Added",
+            body=f"Dr. {current_user.last_name} added a new prescription to your medical record.",
+            entity_type="medical_record", entity_id=record.id)
+        db.commit()
+
     return prescription
 
 
@@ -3171,6 +3407,17 @@ async def create_support_ticket(
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
+
+    # ── Notifică toți adminii ──
+    admins = db.query(DBUser).filter(DBUser.role == UserRole.administrator).all()
+    for admin in admins:
+        create_notification(db, admin.id,
+            type="new_ticket",
+            title="New Support Ticket",
+            body=f"{current_user.first_name} {current_user.last_name} submitted: \"{subject}\".",
+            entity_type="ticket", entity_id=ticket.id)
+    db.commit()
+
     return serialize_ticket(ticket, db)
 
 
@@ -3282,6 +3529,26 @@ def add_ticket_message(
     ticket.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(ticket)
+
+    # ── Notificări mesaj nou în ticket ──
+    if current_user.role == UserRole.administrator:
+        # Admin a răspuns → notifică proprietarul
+        create_notification(db, ticket.user_id,
+            type="ticket_update",
+            title="New Reply on Your Ticket",
+            body=f"Support replied to your ticket: \"{ticket.subject}\".",
+            entity_type="ticket", entity_id=ticket.id)
+    else:
+        # Userul a scris → notifică toți adminii
+        admins = db.query(DBUser).filter(DBUser.role == UserRole.administrator).all()
+        for admin in admins:
+            create_notification(db, admin.id,
+                type="new_ticket",
+                title="Ticket Reply",
+                body=f"{current_user.first_name} {current_user.last_name} replied on: \"{ticket.subject}\".",
+                entity_type="ticket", entity_id=ticket.id)
+    db.commit()
+
     return serialize_ticket(ticket, db)
 
 
@@ -3422,3 +3689,244 @@ def get_admin_stats(
         "recent_tickets":     recent_tickets_out,
         "recent_users":       recent_users_out,
     }
+
+
+#=======================NOTIFICATIONS==============================
+scheduler = BackgroundScheduler()
+
+def get_db_for_scheduler():
+    db = SessionLocal()
+    try:
+        return db
+    finally:
+        pass  
+
+scheduler.add_job(lambda: create_appointment_reminder(SessionLocal()), 'cron', hour=8)
+scheduler.add_job(lambda: create_weekly_signup_summary(SessionLocal()), 'cron', day_of_week='sun', hour=20)
+scheduler.start()
+
+# ── Helper: create a notification ────────────────────────────
+def create_notification(
+    db: Session,
+    user_id: int,
+    type: str,
+    title: str,
+    body: str,
+    entity_type: str = None,
+    entity_id: int = None,
+):
+    """Utility called internally whenever an event occurs."""
+    notif = Notification(
+        user_id=user_id,
+        type=type,
+        title=title,
+        body=body,
+        entity_type=entity_type,
+        entity_id=entity_id,
+    )
+    db.add(notif)
+
+
+
+def create_weekly_signup_summary(db: Session):
+    """
+    Call this once a week (e.g. via APScheduler or a cron job).
+    Creates a summary notification for all admins.
+    """
+    from datetime import timedelta
+    one_week_ago = datetime.utcnow() - timedelta(days=7)
+    new_doctors  = db.query(func.count(DBUser.id)).filter(
+        DBUser.role == UserRole.doctor,
+        DBUser.creation_date >= one_week_ago
+    ).scalar() or 0
+    new_patients = db.query(func.count(DBUser.id)).filter(
+        DBUser.role == UserRole.patient,
+        DBUser.creation_date >= one_week_ago
+    ).scalar() or 0
+
+    admins = db.query(DBUser).filter(DBUser.role == UserRole.administrator).all()
+    for admin in admins:
+        create_notification(
+            db, admin.id,
+            type="weekly_signup_summary",
+            title="Weekly Signup Summary",
+            body=f"This week: {new_doctors} new doctor(s) and {new_patients} new patient(s) registered.",
+        )
+    db.commit()
+
+
+def create_appointment_reminder(db: Session):
+    """
+    Call this daily (e.g. via APScheduler).
+    Notifies patients + doctors about appointments tomorrow.
+    """
+    from datetime import timedelta, date
+    tomorrow = (datetime.utcnow() + timedelta(days=1)).date()
+
+    appointments = db.query(Appointment).filter(
+        func.date(Appointment.appointment_date) == tomorrow
+    ).all()
+
+    for appt in appointments:
+        patient = db.query(Patient).filter(Patient.id == appt.patient_id).first()
+        doctor  = db.query(Doctor).filter(Doctor.id == appt.doctor_id).first()
+
+        if patient:
+            create_notification(
+                db, patient.user_id,
+                type="appointment_reminder",
+                title="Appointment Tomorrow",
+                body=f"Reminder: you have an appointment tomorrow at {appt.start_time.strftime('%H:%M')}.",
+                entity_type="appointment", entity_id=appt.id,
+            )
+        if doctor:
+            create_notification(
+                db, doctor.user_id,
+                type="appointment_reminder",
+                title="Appointment Tomorrow",
+                body=f"Reminder: you have a patient appointment tomorrow at {appt.start_time.strftime('%H:%M')}.",
+                entity_type="appointment", entity_id=appt.id,
+            )
+    db.commit()
+
+
+def check_low_stock_and_notify(db: Session, doctor_id: int, doctor_user_id: int):
+    """
+    Call after any stock change.
+    Creates a low_stock notification if any material is below min_quantity.
+    """
+    stocks = db.query(Stock).filter(Stock.doctor_id == doctor_id).all()
+    for stock in stocks:
+        material = db.query(Material).filter(Material.id == stock.material_id).first()
+        if material and stock.quantity < material.min_quantity:
+            # Avoid duplicate unread low_stock notifications for same material
+            existing = db.query(Notification).filter(
+                Notification.user_id == doctor_user_id,
+                Notification.type == "low_stock",
+                Notification.entity_id == material.id,
+                Notification.is_read == False,
+            ).first()
+            if not existing:
+                create_notification(
+                    db, doctor_user_id,
+                    type="low_stock",
+                    title="Low Stock Alert",
+                    body=f"{material.name} is running low ({float(stock.quantity)} {material.unit} remaining).",
+                    entity_type="stock", entity_id=material.id,
+                )
+    db.commit()
+
+
+def notify_feedback_request(db: Session, appointment_id: int):
+    """
+    Call when appointment status changes to 'finalised'.
+    Asks the patient to leave feedback.
+    """
+    appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if not appt:
+        return
+    patient = db.query(Patient).filter(Patient.id == appt.patient_id).first()
+    if not patient:
+        return
+    create_notification(
+        db, patient.user_id,
+        type="feedback_request",
+        title="How was your appointment?",
+        body="Your appointment has ended. Please take a moment to leave feedback for your doctor.",
+        entity_type="appointment", entity_id=appointment_id,
+    )
+    db.commit()
+
+
+# ── API Routes ────────────────────────────────────────────────
+
+@app.get("/notifications")
+def get_notifications(
+    limit: int = Query(20, le=50),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Returns the latest notifications for the current user."""
+    notifications = (
+        db.query(Notification)
+        .filter(Notification.user_id == current_user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id":          n.id,
+            "type":        n.type,
+            "title":       n.title,
+            "body":        n.body,
+            "is_read":     n.is_read,
+            "entity_type": n.entity_type,
+            "entity_id":   n.entity_id,
+            "created_at":  n.created_at,
+        }
+        for n in notifications
+    ]
+
+
+@app.get("/notifications/unread-count")
+def get_unread_count(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Returns total unread notification count — used for the bell badge."""
+    count = db.query(func.count(Notification.id)).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,
+    ).scalar()
+    return {"count": count or 0}
+
+
+@app.patch("/notifications/{notification_id}/read")
+def mark_notification_read(
+    notification_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mark a single notification as read."""
+    notif = db.query(Notification).filter(
+        Notification.id == notification_id,
+        Notification.user_id == current_user.id,
+    ).first()
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    notif.is_read = True
+    db.commit()
+    return {"ok": True}
+
+
+@app.patch("/notifications/read-all")
+def mark_all_read(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mark all notifications as read for the current user."""
+    db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,
+    ).update({"is_read": True})
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/notifications/{notification_id}")
+def delete_notification(
+    notification_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a notification."""
+    notif = db.query(Notification).filter(
+        Notification.id == notification_id,
+        Notification.user_id == current_user.id,
+    ).first()
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    db.delete(notif)
+    db.commit()
+    return {"ok": True}
