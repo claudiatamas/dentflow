@@ -15,7 +15,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 from collections import defaultdict
 from apscheduler.schedulers.background import BackgroundScheduler
-
+from ai_scan_router import router as ai_router
 from dependencies import get_db
 from database import SessionLocal
 from models import (
@@ -46,6 +46,7 @@ UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # ==================== FastAPI App ====================
 app = FastAPI(title="Medical Management API", version="1.0.0")
+app.include_router(ai_router)
 
 app.add_middleware(
     CORSMiddleware,

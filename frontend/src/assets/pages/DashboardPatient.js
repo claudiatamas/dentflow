@@ -506,7 +506,7 @@ const DashboardPatient = () => {
                     {/* ── Sidebar ── */}
                     <div className="space-y-4 lg:col-span-1">
 
-                        {/* ── AI Dental Scan CTA ── */}
+                       {/* ── AI Dental Scan CTA ── */}
                         <div
                             onClick={() => navigate('/dental_scan')}
                             className="cursor-pointer relative overflow-hidden rounded-2xl p-5 shadow-sm group"
@@ -537,23 +537,23 @@ const DashboardPatient = () => {
                                     </div>
                                     <span className="text-xs font-bold px-2 py-0.5 rounded-full"
                                         style={{ background: 'rgba(255,255,255,0.2)', color: 'white', letterSpacing: '0.06em' }}>
-                                        ✨ NOU
+                                        ✨ NEW
                                     </span>
                                 </div>
 
                                 {/* Text */}
                                 <p className="text-sm font-bold text-white mb-1 leading-tight">
-                                    Analiză Dentară AI
+                                    AI Dental Analysis
                                 </p>
                                 <p className="text-xs leading-relaxed mb-4"
                                     style={{ color: 'rgba(255,255,255,0.7)' }}>
-                                    Încarcă o fotografie și AI-ul detectează posibile afecțiuni dentare.
+                                    Upload a photo and the AI will detect possible dental conditions.
                                 </p>
 
                                 {/* CTA row */}
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-semibold text-white flex items-center gap-1.5">
-                                        Încearcă acum
+                                        Try it now
                                         <span style={{
                                             display: 'inline-block', transition: 'transform 0.2s',
                                         }} className="group-hover:translate-x-1">→</span>
@@ -566,7 +566,7 @@ const DashboardPatient = () => {
                                 </div>
                             </div>
                         </div>
-                        {/* Today */}
+                                                {/* Today */}
                         <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
                             <div className="flex items-center gap-2 mb-4">
                                 <div className="w-7 h-7 rounded-lg bg-[#1C398E]/8 flex items-center justify-center">
