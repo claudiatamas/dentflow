@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plus, X, MapPin, Clock,Table, User, List, Edit, Trash2, CheckCircle, XCircle, AlertCircle, FileText, MessageSquare } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, X, MapPin, Clock,Table, User, List, Edit, Trash2, CheckCircle, XCircle, AlertCircle, FileText, MessageSquare, Scan } from 'lucide-react';
 import PatientLayout from '../components/PatientLayout';
 import { useNavigate } from 'react-router-dom';
 
@@ -479,6 +479,7 @@ const DashboardPatient = () => {
 
     return (
         <PatientLayout>
+            
             <AppointmentDetailsModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}
                 appointment={selectedAppointment?.appt} doctor={selectedAppointment?.doctor} />
             <EditAppointmentModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)}
@@ -501,10 +502,70 @@ const DashboardPatient = () => {
 
             {!loading && !error && (
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-
+                    
                     {/* ── Sidebar ── */}
                     <div className="space-y-4 lg:col-span-1">
 
+                        {/* ── AI Dental Scan CTA ── */}
+                        <div
+                            onClick={() => navigate('/dental_scan')}
+                            className="cursor-pointer relative overflow-hidden rounded-2xl p-5 shadow-sm group"
+                            style={{
+                                background: 'linear-gradient(135deg, #1C398E 0%, #1e4db7 60%, #3b82f6 100%)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                            }}
+                        >
+                            {/* Decorative glow blob */}
+                            <div style={{
+                                position: 'absolute', top: -20, right: -20,
+                                width: 90, height: 90, borderRadius: '50%',
+                                background: 'rgba(255,255,255,0.08)',
+                                transition: 'transform 0.3s',
+                            }} className="group-hover:scale-125" />
+                            <div style={{
+                                position: 'absolute', bottom: -10, left: -10,
+                                width: 60, height: 60, borderRadius: '50%',
+                                background: 'rgba(255,255,255,0.05)',
+                            }} />
+
+                            <div className="relative z-10">
+                                {/* Icon + badge */}
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                                        style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(4px)' }}>
+                                        <Scan size={20} color="white" />
+                                    </div>
+                                    <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                                        style={{ background: 'rgba(255,255,255,0.2)', color: 'white', letterSpacing: '0.06em' }}>
+                                        ✨ NOU
+                                    </span>
+                                </div>
+
+                                {/* Text */}
+                                <p className="text-sm font-bold text-white mb-1 leading-tight">
+                                    Analiză Dentară AI
+                                </p>
+                                <p className="text-xs leading-relaxed mb-4"
+                                    style={{ color: 'rgba(255,255,255,0.7)' }}>
+                                    Încarcă o fotografie și AI-ul detectează posibile afecțiuni dentare.
+                                </p>
+
+                                {/* CTA row */}
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                                        Încearcă acum
+                                        <span style={{
+                                            display: 'inline-block', transition: 'transform 0.2s',
+                                        }} className="group-hover:translate-x-1">→</span>
+                                    </span>
+                                    <div className="flex gap-1">
+                                        {['🦷', '🔍', '🤖'].map((e, i) => (
+                                            <span key={i} style={{ fontSize: 14 }}>{e}</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         {/* Today */}
                         <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
                             <div className="flex items-center gap-2 mb-4">

@@ -22,7 +22,6 @@ const fetchWithRetry = async (url, options, retries = 3) => {
     }
 };
 
-// ── Status Badge ──────────────────────────────────────────────
 const STATUS = {
     confirmed: { icon: CheckCircle, label: 'Confirmed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     pending:   { icon: AlertCircle, label: 'Pending',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -40,7 +39,6 @@ const StatusBadge = ({ status }) => {
     );
 };
 
-// ── Modal shell ───────────────────────────────────────────────
 const ModalShell = ({ isOpen, onClose, title, children, maxW = 'max-w-lg' }) => {
     if (!isOpen) return null;
     return (
@@ -58,7 +56,6 @@ const ModalShell = ({ isOpen, onClose, title, children, maxW = 'max-w-lg' }) => 
     );
 };
 
-// ── Field row for details modal ───────────────────────────────
 const DetailRow = ({ icon: Icon, label, children }) => (
     <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-lg bg-[#1C398E]/8 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -71,7 +68,118 @@ const DetailRow = ({ icon: Icon, label, children }) => (
     </div>
 );
 
-// ── Appointment Details Modal ─────────────────────────────────
+// ── Today Card Modal — detalii pacient + schimbare status ─────
+const TodayAppointmentModal = ({ isOpen, onClose, appointment, onSave }) => {
+    const [selectedStatus, setSelectedStatus] = useState('pending');
+    const [changed, setChanged] = useState(false);
+
+    useEffect(() => {
+        if (appointment) { setSelectedStatus(appointment.status || 'pending'); setChanged(false); }
+    }, [appointment]);
+
+    const statusOptions = [
+        { value: 'pending',   label: 'Pending',   color: 'amber' },
+        { value: 'confirmed', label: 'Confirmed',  color: 'emerald' },
+        { value: 'cancelled', label: 'Cancelled',  color: 'red' },
+        { value: 'finalised', label: 'Finalised',  color: 'blue' },
+    ];
+
+    const colorMap = {
+        amber:   'border-amber-400 bg-amber-50',
+        emerald: 'border-emerald-400 bg-emerald-50',
+        red:     'border-red-400 bg-red-50',
+        blue:    'border-blue-400 bg-blue-50',
+    };
+
+    if (!isOpen || !appointment) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ backgroundColor: 'rgba(0,0,0,0.45)' }} onClick={onClose}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-2 h-8 rounded-full flex-shrink-0" style={{ backgroundColor: appointment.color }} />
+                        <div>
+                            <p className="text-sm font-bold text-gray-800">{appointment.type}</p>
+                            <p className="text-xs text-gray-400">{appointment.startTime} – {appointment.endTime}</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="cursor-pointer p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                        <X size={16} />
+                    </button>
+                </div>
+
+                <div className="px-5 py-4 space-y-4">
+                    {/* Patient info */}
+                    <div className="bg-gray-50 rounded-xl p-4 space-y-2.5">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-[#1C398E]/8 flex items-center justify-center flex-shrink-0">
+                                <User size={14} className="text-[#1C398E]" />
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-gray-800">{appointment.patientName}</p>
+                                <p className="text-xs text-gray-400">Patient</p>
+                            </div>
+                        </div>
+                        {appointment.patientPhone && appointment.patientPhone !== 'N/A' && (
+                            <a href={`tel:${appointment.patientPhone}`}
+                                className="flex items-center gap-2 text-xs text-gray-600 hover:text-[#1C398E] transition-colors">
+                                <Phone size={12} className="text-gray-400" /> {appointment.patientPhone}
+                            </a>
+                        )}
+                        {appointment.patientEmail && appointment.patientEmail !== 'N/A' && (
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <Mail size={12} className="text-gray-400" /> {appointment.patientEmail}
+                            </div>
+                        )}
+                        {appointment.description && (
+                            <div className="flex items-start gap-2 text-xs text-gray-500 pt-1 border-t border-gray-200">
+                                <FileText size={12} className="text-gray-400 mt-0.5 flex-shrink-0" /> {appointment.description}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Status */}
+                    <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Status</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            {statusOptions.map(opt => (
+                                <label key={opt.value}
+                                    className={`flex items-center gap-2 px-3 py-2.5 border-2 rounded-xl cursor-pointer transition-all ${
+                                        selectedStatus === opt.value ? colorMap[opt.color] : 'border-gray-100 hover:border-gray-200 bg-white'
+                                    }`}>
+                                    <input type="radio" name="tstatus" value={opt.value}
+                                        checked={selectedStatus === opt.value}
+                                        onChange={e => { setSelectedStatus(e.target.value); setChanged(true); }}
+                                        className="accent-[#1C398E]" />
+                                    <span className="text-xs font-semibold text-gray-800">{opt.label}</span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 pb-5 flex gap-2">
+                    <button onClick={onClose}
+                        className="cursor-pointer flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-200 transition">
+                        Close
+                    </button>
+                    {changed && (
+                        <button onClick={() => onSave({ status: selectedStatus })}
+                            className="cursor-pointer flex-1 px-4 py-2.5 bg-[#1C398E] text-white text-sm font-medium rounded-xl hover:bg-[#1C398E]/90 transition">
+                            Save Status
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const AppointmentDetailsModal = ({ isOpen, onClose, appointment, patient }) => (
     <ModalShell isOpen={isOpen} onClose={onClose} title="Appointment Details">
         {appointment && (
@@ -107,7 +215,6 @@ const AppointmentDetailsModal = ({ isOpen, onClose, appointment, patient }) => (
     </ModalShell>
 );
 
-// ── Status Change Modal ───────────────────────────────────────
 const StatusChangeModal = ({ isOpen, onClose, appointment, onSave }) => {
     const [selectedStatus, setSelectedStatus] = useState('pending');
     const [message, setMessage] = useState('');
@@ -164,7 +271,6 @@ const StatusChangeModal = ({ isOpen, onClose, appointment, onSave }) => {
     );
 };
 
-// ── Edit Appointment Modal ────────────────────────────────────
 const EditAppointmentModal = ({ isOpen, onClose, appointment, onSave }) => {
     const [editedDate, setEditedDate] = useState('');
     const [editedStartTime, setEditedStartTime] = useState('');
@@ -243,11 +349,14 @@ const EditAppointmentModal = ({ isOpen, onClose, appointment, onSave }) => {
     );
 };
 
-// ── All Appointments Modal ────────────────────────────────────
 const AllAppointmentsModal = ({ isOpen, onClose, appointments, onEdit, onCancel, onStatusChange }) => {
+    const [page, setPage] = useState(0);
+    const PER_PAGE = 3;
     const sorted = [...appointments].sort((a, b) =>
         new Date(`${b.appointment_date}T${b.startTime}`) - new Date(`${a.appointment_date}T${a.startTime}`)
     );
+    const totalPages = Math.ceil(sorted.length / PER_PAGE);
+    const paginated = sorted.slice(page * PER_PAGE, (page + 1) * PER_PAGE);
 
     return (
         <ModalShell isOpen={isOpen} onClose={onClose} title={`This Week's Appointments (${appointments.length})`} maxW="max-w-2xl">
@@ -258,8 +367,20 @@ const AllAppointmentsModal = ({ isOpen, onClose, appointments, onEdit, onCancel,
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {sorted.map(appt => (
-                        <div key={appt.id} className="flex items-start gap-3 p-4 border border-gray-100 rounded-xl hover:border-gray-200 transition bg-white">
+                    {paginated.map((appt, idx) => {
+                        const globalIdx = page * PER_PAGE + idx;
+                        const prevAppt = globalIdx > 0 ? sorted[globalIdx - 1] : null;
+                        const showDayHeader = !prevAppt || prevAppt.appointment_date !== appt.appointment_date;
+                        const dayLabel = new Date(appt.appointment_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+                        return (
+                        <div key={appt.id}>
+                        {showDayHeader && (
+                            <div className="flex items-center gap-2 mb-2 mt-1">
+                                <span className="text-xs font-bold text-[#1C398E] uppercase tracking-widest">{dayLabel}</span>
+                                <div className="flex-1 h-px bg-[#1C398E]/10" />
+                            </div>
+                        )}
+                        <div className="flex items-start gap-3 p-4 border border-gray-100 rounded-xl hover:border-gray-200 transition bg-white mb-2">
                             <div className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0" style={{ backgroundColor: appt.color }} />
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -284,14 +405,30 @@ const AllAppointmentsModal = ({ isOpen, onClose, appointments, onEdit, onCancel,
                                 </div>
                             )}
                         </div>
-                    ))}
+                        </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                    <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                        className="cursor-pointer flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded-xl hover:border-[#1C398E]/40 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                        <ChevronLeft size={14} /> Previous
+                    </button>
+                    <span className="text-xs text-gray-400">{page + 1} / {totalPages}</span>
+                    <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page === totalPages - 1}
+                        className="cursor-pointer flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded-xl hover:border-[#1C398E]/40 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                        Next <ChevronRight size={14} />
+                    </button>
                 </div>
             )}
         </ModalShell>
     );
 };
 
-// ── Week Picker Modal ─────────────────────────────────────────
 const WeekPickerModal = ({ isOpen, onClose, onSelectWeek, currentWeekStart }) => {
     const [selectedDate, setSelectedDate] = useState('');
 
@@ -329,6 +466,10 @@ const DashboardDoctor = () => {
     const [loading, setLoading]             = useState(true);
     const [error, setError]                 = useState(null);
 
+    // Today carousel
+    const [todayPage, setTodayPage]         = useState(0);
+    const TODAY_PER_PAGE = 3;
+
     const [isModalOpen, setIsModalOpen]                       = useState(false);
     const [selectedAppointment, setSelectedAppointment]       = useState(null);
     const [isAllAppointmentsModalOpen, setIsAllAppointmentsModalOpen] = useState(false);
@@ -338,6 +479,10 @@ const DashboardDoctor = () => {
     const [statusChangingAppointment, setStatusChangingAppointment] = useState(null);
     const [isWeekPickerOpen, setIsWeekPickerOpen]             = useState(false);
     const [isTypesModalOpen, setIsTypesModalOpen]             = useState(false);
+
+    // Quick status from Today card
+    const [quickStatusAppt, setQuickStatusAppt]               = useState(null);
+    const [isQuickStatusOpen, setIsQuickStatusOpen]           = useState(false);
 
     const getMonday = (date) => {
         const d = new Date(date);
@@ -414,8 +559,14 @@ const DashboardDoctor = () => {
         setIsModalOpen(true);
     };
 
-    const handleEditAppointment = (appt) => { setEditingAppointment(appt); setIsEditModalOpen(true); setIsAllAppointmentsModalOpen(false); };
-    const handleStatusChange    = (appt) => { setStatusChangingAppointment(appt); setIsStatusChangeModalOpen(true); setIsAllAppointmentsModalOpen(false); };
+    const handleEditAppointment   = (appt) => { setEditingAppointment(appt); setIsEditModalOpen(true); setIsAllAppointmentsModalOpen(false); };
+    const handleStatusChange      = (appt) => { setStatusChangingAppointment(appt); setIsStatusChangeModalOpen(true); setIsAllAppointmentsModalOpen(false); };
+
+    // Click on Today card → quick status modal
+    const handleTodayCardClick = (appt) => {
+        setQuickStatusAppt(appt);
+        setIsQuickStatusOpen(true);
+    };
 
     const refreshAppointments = async () => {
         const token = localStorage.getItem('access_token');
@@ -434,6 +585,16 @@ const DashboardDoctor = () => {
                 { method: 'PATCH', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
             await refreshAppointments();
             setIsStatusChangeModalOpen(false);
+        } catch (err) { alert('Failed to update status.'); }
+    };
+
+    const handleSaveQuickStatus = async (updates) => {
+        try {
+            const token = localStorage.getItem('access_token');
+            await fetchWithRetry(`${API}/appointments/${quickStatusAppt.id}`,
+                { method: 'PATCH', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(updates) });
+            await refreshAppointments();
+            setIsQuickStatusOpen(false);
         } catch (err) { alert('Failed to update status.'); }
     };
 
@@ -482,8 +643,13 @@ const DashboardDoctor = () => {
         fetchAllData();
     }, [navigate, mapAppointmentData]);
 
-    const today            = new Date().toISOString().split('T')[0];
-    const todayAppointments = appointments.filter(a => a.appointment_date === today);
+    const today             = new Date().toISOString().split('T')[0];
+    const todayAppointments = appointments
+        .filter(a => a.appointment_date === today)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime));
+    const totalTodayPages   = Math.ceil(todayAppointments.length / TODAY_PER_PAGE);
+    const visibleToday      = todayAppointments.slice(todayPage * TODAY_PER_PAGE, (todayPage + 1) * TODAY_PER_PAGE);
+
     const totalAppointments = appointments.length;
     const weekDates         = daysOfWeek.map(d => d.fullDate);
     const weekAppointments  = appointments.filter(a => weekDates.includes(a.appointment_date));
@@ -506,6 +672,8 @@ const DashboardDoctor = () => {
             <WeekPickerModal isOpen={isWeekPickerOpen} onClose={() => setIsWeekPickerOpen(false)}
                 onSelectWeek={d => setWeekStart(getMonday(d))} currentWeekStart={weekStart} />
             <AppointmentTypesModal isOpen={isTypesModalOpen} onClose={() => setIsTypesModalOpen(false)} />
+            <TodayAppointmentModal isOpen={isQuickStatusOpen} onClose={() => setIsQuickStatusOpen(false)}
+                appointment={quickStatusAppt} onSave={handleSaveQuickStatus} />
 
             {loading && (
                 <div className="flex items-center justify-center py-20">
@@ -526,19 +694,43 @@ const DashboardDoctor = () => {
 
                         {/* Today */}
                         <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-                            <div className="flex items-center gap-2 mb-4">
-                                <div className="w-7 h-7 rounded-lg bg-[#1C398E]/8 flex items-center justify-center">
-                                    <Calendar size={14} className="text-[#1C398E]" />
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-7 h-7 rounded-lg bg-[#1C398E]/8 flex items-center justify-center">
+                                        <Calendar size={14} className="text-[#1C398E]" />
+                                    </div>
+                                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Today</h2>
+                                    {todayAppointments.length > 0 && (
+                                        <span className="text-xs font-bold text-[#1C398E] bg-[#1C398E]/8 px-1.5 py-0.5 rounded-md">
+                                            {todayAppointments.length}
+                                        </span>
+                                    )}
                                 </div>
-                                <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Today</h2>
+                                {/* Arrows — visible only if more than 3 */}
+                                {totalTodayPages > 1 && (
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => setTodayPage(p => Math.max(0, p - 1))}
+                                            disabled={todayPage === 0}
+                                            className="cursor-pointer p-1 text-gray-400 hover:text-[#1C398E] hover:bg-[#1C398E]/8 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed">
+                                            <ChevronLeft size={14} />
+                                        </button>
+                                        <span className="text-xs text-gray-400">{todayPage + 1}/{totalTodayPages}</span>
+                                        <button onClick={() => setTodayPage(p => Math.min(totalTodayPages - 1, p + 1))}
+                                            disabled={todayPage === totalTodayPages - 1}
+                                            className="cursor-pointer p-1 text-gray-400 hover:text-[#1C398E] hover:bg-[#1C398E]/8 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed">
+                                            <ChevronRight size={14} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
+
                             {todayAppointments.length === 0 ? (
                                 <p className="text-xs text-gray-300 text-center py-4">No appointments today</p>
                             ) : (
                                 <div className="space-y-2">
-                                    {todayAppointments.map(appt => (
-                                        <div key={appt.id} onClick={() => handleAppointmentClick(appt)}
-                                            className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors border border-gray-100">
+                                    {visibleToday.map(appt => (
+                                        <div key={appt.id} onClick={() => handleTodayCardClick(appt)}
+                                            className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors border border-gray-100 group">
                                             <div className="w-1.5 h-8 rounded-full flex-shrink-0" style={{ backgroundColor: appt.color }} />
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center justify-between mb-0.5">
@@ -547,6 +739,10 @@ const DashboardDoctor = () => {
                                                 </div>
                                                 <p className="text-xs text-gray-500 truncate">{appt.patientName}</p>
                                                 <p className="text-xs text-gray-400 truncate">{appt.type}</p>
+                                            </div>
+                                            {/* Hint icon */}
+                                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                                <CheckCircle size={14} className="text-[#1C398E]" />
                                             </div>
                                         </div>
                                     ))}
@@ -582,7 +778,7 @@ const DashboardDoctor = () => {
                             </div>
                             <button onClick={() => navigate('/appointments_doctor')}
                                 className="cursor-pointer w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#1C398E] text-white text-xs font-semibold hover:bg-[#1C398E]/90 transition-colors">
-                                 All Appointments
+                                All Appointments
                             </button>
                         </div>
 
@@ -617,7 +813,6 @@ const DashboardDoctor = () => {
 
                     {/* ── Calendar ── */}
                     <div className="lg:col-span-3 bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-                        {/* Header */}
                         <div className="flex items-center justify-between mb-5">
                             <div>
                                 <h2 className="text-base font-bold text-gray-800">Weekly Schedule</h2>
@@ -639,7 +834,6 @@ const DashboardDoctor = () => {
                             </div>
                         </div>
 
-                        {/* Day headers */}
                         <div className="grid grid-cols-[56px_repeat(5,_1fr)] border-b border-gray-100 pb-3 mb-2">
                             <div />
                             {daysOfWeek.map((day, idx) => (
@@ -660,9 +854,7 @@ const DashboardDoctor = () => {
                             ))}
                         </div>
 
-                        {/* Time grid */}
                         <div className="grid grid-cols-[56px_repeat(5,_1fr)] overflow-x-auto pb-2">
-                            {/* Time labels */}
                             <div>
                                 {timeSlots.map((time, idx) => (
                                     <div key={idx} className="h-16 flex items-start justify-end pr-3 pt-1">
@@ -670,8 +862,6 @@ const DashboardDoctor = () => {
                                     </div>
                                 ))}
                             </div>
-
-                            {/* Day columns */}
                             {daysOfWeek.map((day, dayIdx) => (
                                 <div key={dayIdx} className={`relative border-l ${day.isToday ? 'border-[#1C398E]/20 bg-[#1C398E]/[0.02]' : 'border-gray-50'}`}>
                                     {timeSlots.map((_, timeIdx) => (
@@ -687,7 +877,6 @@ const DashboardDoctor = () => {
                                                     style={{ ...style, backgroundColor: appt.color + 'dd', width: '88%', left: '6%', zIndex: 10 }}
                                                     onClick={() => handleAppointmentClick(appt)}>
                                                     <p className="font-bold text-xs text-gray-800 truncate leading-tight">{appt.type}</p>
-                                                   
                                                     <div className="absolute top-1.5 right-1.5">
                                                         {appt.status === 'confirmed'  && <CheckCircle size={10} className="text-emerald-600" />}
                                                         {appt.status === 'cancelled'  && <XCircle     size={10} className="text-red-500" />}

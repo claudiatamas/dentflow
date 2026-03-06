@@ -214,7 +214,7 @@ const CreateAppointmentModal = ({ isOpen, onClose, patient, doctorId }) => {
         } catch (_) {}
         setLoadingTypes(false);
     };
-
+    
     // Fetch slots when date + type are selected
     useEffect(() => {
         if (!selectedDate || !selectedType || !doctorId) return;
@@ -248,7 +248,7 @@ const CreateAppointmentModal = ({ isOpen, onClose, patient, doctorId }) => {
         try {
             await axios.post(`${API}/appointments`, {
                 patient_id:          patient.other_user_id,
-                doctor_id:           doctorId,              // ← lipsea asta
+                doctor_id:           doctorId,              
                 appointment_type_id: selectedType.id,
                 appointment_date:    `${selectedDate}T00:00:00`,
                 start_time:          selectedSlot.start_time + ':00',
@@ -463,6 +463,7 @@ const NewChatModal = ({ isOpen, onClose, currentUser, onStartChat }) => {
             let data = [];
             if (isDoctor) {
                 const res = await axios.get(`${API}/doctor/appointment-patients`, { headers: getHeaders() });
+                 console.log("Patients from API:", res.data);
                 data = res.data;
             } else {
                 const res = await axios.get(`${API}/doctors`, { headers: getHeaders() });

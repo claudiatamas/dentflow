@@ -21,6 +21,10 @@ import HelpPage from './assets/pages/HelpPage';
 import AdminHelpPage from './assets/pages/AdminHelpPage';
 import AppointmentsListDoctor from './assets/pages/AppointmentsListDoctor';
 import AppointmentsListPatient from './assets/pages/AppointmentsListPatient';
+import AdminAppFeedback from './assets/pages/AdminAppFeedback';
+import DentalAIScan from './assets/pages/DentalAIScan';
+
+
 function App() {
   return (
     <Router>
@@ -46,6 +50,9 @@ function App() {
         <Route path="/help_admin" element={<AdminHelpPage/>}/>
         <Route path="/appointments_doctor" element={<AppointmentsListDoctor />} />
         <Route path="/appointments_patient" element={<AppointmentsListPatient />} />
+        <Route path="/app_feedback" element={<AdminAppFeedback />} />
+        <Route path="/dental_scan" element={<DentalAIScan />} />
+      
       </Routes>
     </Router>
   );

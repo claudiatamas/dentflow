@@ -66,9 +66,8 @@ const AdminLayout = ({ children }) => {
     { to: '/dashboard_admin', icon: BarChart2, label: 'Activity'          },
     { to: '/admin_users',     icon: Users,     label: 'Users'             },
     { to: '/help_admin',      icon: HelpCircle,label: 'Support Requests'  },
-    { to: '/adminblog',       icon: FileText,  label: 'Reports & Stats'   },
     { to: '/adminblog',       icon: Megaphone, label: 'Blog'              },
-    { to: '/adminblog',       icon: Star,      label: 'Reviews'           },
+    { to: '/app_feedback',       icon: Star,      label: 'Reviews'           },
   ];
 
   return (
@@ -89,7 +88,7 @@ const AdminLayout = ({ children }) => {
 
         <div className="flex items-center space-x-3 bg-white/90 shadow-md p-2 md:p-3 rounded-3xl z-30">
           <NotificationBell />
-          <Settings className="cursor-pointer h-5 w-5 text-gray-500" />
+        
 
           {/* Profile dropdown */}
           <div className="relative" ref={dropdownRef}>

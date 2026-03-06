@@ -352,117 +352,6 @@ class WorkScheduleOut(WorkScheduleBase):
 
 
 
-# ========== FEEDBACK =============
-# Enums
-class FeedbackCategory(str, Enum):
-    DOCTOR_TO_PATIENT = "doctor_to_patient"
-    PATIENT_TO_DOCTOR = "patient_to_doctor"
-    USER_TO_APP = "user_to_app"
-
-class FeedbackStatus(str, Enum):
-    PENDING = "pending"
-    REVIEWED = "reviewed"
-    RESPONDED = "responded"
-    RESOLVED = "resolved"
-    ARCHIVED = "archived"
-
-class Severity(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-# Base Schema
-class FeedbackBase(BaseModel):
-    feedback_category: FeedbackCategory
-    title: Optional[str] = Field(None, max_length=255)
-    comment: Optional[str] = None
-    rating: Optional[int] = Field(None, ge=1, le=5)
-    is_anonymous: bool = False
-    is_public: bool = False
-
-# Schema pentru creare feedback DOCTOR -> PATIENT
-class FeedbackDoctorToPatientCreate(BaseModel):
-    to_patient_id: int = Field(..., gt=0)
-    appointment_id: Optional[int] = Field(None, gt=0)
-    comment: str = Field(..., min_length=1)
-    
-    @field_validator('comment')
-    @classmethod
-    def comment_not_empty(cls, v):
-        if not v or not v.strip():
-            raise ValueError('Comment cannot be empty')
-        return v
-
-# Schema pentru creare feedback PATIENT -> DOCTOR
-class FeedbackPatientToDoctorCreate(BaseModel):
-    to_doctor_id: int = Field(..., gt=0)
-    appointment_id: Optional[int] = Field(None, gt=0)
-    rating: int = Field(..., ge=1, le=5)
-    punctuality_rating: Optional[int] = Field(None, ge=1, le=5)
-    communication_rating: Optional[int] = Field(None, ge=1, le=5)
-    professionalism_rating: Optional[int] = Field(None, ge=1, le=5)
-    equipment_rating: Optional[int] = Field(None, ge=1, le=5)
-    comment: Optional[str] = None
-    is_public: bool = False
-
-# Schema pentru creare feedback USER -> APP
-class FeedbackUserToAppCreate(BaseModel):
-    app_section: str = Field(..., max_length=100)
-    severity: Severity
-    title: str = Field(..., min_length=1, max_length=255)
-    comment: str = Field(..., min_length=1)
-
-# Schema pentru răspuns la feedback
-class FeedbackResponseCreate(BaseModel):
-    response: str = Field(..., min_length=1)
-
-# Schema pentru update status
-class FeedbackStatusUpdate(BaseModel):
-    status: FeedbackStatus
-
-# Schema completă de răspuns
-class FeedbackResponse(FeedbackBase):
-    id: int
-    from_user_id: int
-    to_patient_id: Optional[int] = None
-    to_doctor_id: Optional[int] = None
-    appointment_id: Optional[int] = None
-    punctuality_rating: Optional[int] = None
-    communication_rating: Optional[int] = None
-    professionalism_rating: Optional[int] = None
-    equipment_rating: Optional[int] = None
-    app_section: Optional[str] = None
-    severity: Optional[Severity] = None
-    status: FeedbackStatus
-    response: Optional[str] = None
-    responded_by: Optional[int] = None
-    responded_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
-
-# Schema cu detalii user
-class FeedbackDetailResponse(FeedbackResponse):
-    from_user_name: Optional[str] = None
-    to_user_name: Optional[str] = None
-    responder_name: Optional[str] = None
-
-# Schema pentru statistici doctor
-class DoctorFeedbackStats(BaseModel):
-    total_feedbacks: int
-    average_rating: float
-    avg_punctuality: Optional[float] = None
-    avg_communication: Optional[float] = None
-    avg_professionalism: Optional[float] = None
-    avg_equipment: Optional[float] = None
-    five_star_count: int
-    four_star_count: int
-    three_star_count: int
-    two_star_count: int
-    one_star_count: int
 
 
 # ============= CHAT =================
@@ -696,3 +585,43 @@ class SupportTicketOut(BaseModel):
 
 class TicketMessageCreate(BaseModel):
     message: str
+
+
+
+# ── Doctor Review ─────────────────────────────────────────────
+class DoctorReviewCreate(BaseModel):
+    appointment_id: int
+    stars:          int = Field(..., ge=1, le=5)
+    message:        Optional[str] = None
+
+class DoctorReviewOut(BaseModel):
+    id:             int
+    doctor_id:      int
+    patient_id:     int
+    appointment_id: int
+    stars:          int
+    message:        Optional[str]
+    created_at:     datetime
+    patient_name:   Optional[str] = None   # joined in route
+
+    class Config:
+        from_attributes = True
+
+class DoctorRatingSummary(BaseModel):
+    average_stars: float
+    total_reviews: int
+
+# ── App Feedback ──────────────────────────────────────────────
+class AppFeedbackCreate(BaseModel):
+    stars:   int = Field(..., ge=1, le=5)
+    message: Optional[str] = None
+
+class AppFeedbackOut(BaseModel):
+    id:         int
+    user_id:    int
+    stars:      int
+    message:    Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

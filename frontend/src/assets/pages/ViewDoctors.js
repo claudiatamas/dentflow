@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import PatientLayout from "../components/PatientLayout";
-import { Search, Filter, X, MapPin, Phone, Mail, User, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
+import { Search, Filter, X, MapPin, Phone, Mail, User, ChevronLeft, ChevronRight, AlertCircle, Star } from "lucide-react";
 import MakeAppointmentModal from "../components/MakeAppointmentModal";
 import { useNavigate } from "react-router-dom";
+
+const API = "http://localhost:8000";
+
 
 // ── Modal Shell ───────────────────────────────────────────────
 const ModalShell = ({ isOpen, onClose, title, children, maxW = 'max-w-xl' }) => {
@@ -25,25 +28,134 @@ const ModalShell = ({ isOpen, onClose, title, children, maxW = 'max-w-xl' }) => 
     );
 };
 
+// ── Star display ──────────────────────────────────────────────
+const StarDisplay = ({ value, size = 12 }) => (
+    <div className="flex gap-0.5">
+        {[1,2,3,4,5].map(i => (
+            <Star key={i} size={size}
+                className={i <= Math.round(value) ? 'text-amber-400 fill-amber-400' : 'text-gray-200 fill-gray-200'} />
+        ))}
+    </div>
+);
+
+// ── Reviews Modal ─────────────────────────────────────────────
+const ReviewsModal = ({ isOpen, onClose, doctor }) => {
+    const [reviews, setReviews] = useState([]);
+    const [summary, setSummary] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        
+        if (!isOpen || !doctor) return;
+        setLoading(true);
+        Promise.all([
+            fetch(`${API}/doctor-reviews/${doctor.doctorId}`).then(r => r.json()),
+            fetch(`${API}/doctor-reviews/${doctor.doctorId}/summary`).then(r => r.json()),
+        ])
+            .then(([r, s]) => { setReviews(Array.isArray(r) ? r : []); setSummary(s); })
+            .catch(() => {})
+            .finally(() => setLoading(false));
+    }, [isOpen, doctor]);
+
+    const formatDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+    return (
+        <ModalShell isOpen={isOpen} onClose={onClose}
+            title={`Reviews — Dr. ${doctor?.first_name} ${doctor?.last_name}`}
+            maxW="max-w-lg">
+
+            {/* Summary */}
+            {summary && summary.total_reviews > 0 && (
+                <div className="flex items-center gap-4 p-4 bg-amber-50 border border-amber-100 rounded-xl mb-5">
+                    <div className="text-center">
+                        <p className="text-3xl font-bold text-gray-800">{summary.average_stars}</p>
+                        <StarDisplay value={summary.average_stars} size={14} />
+                    </div>
+                    <div>
+                        <p className="text-sm font-semibold text-gray-700">Overall rating</p>
+                        <p className="text-xs text-gray-400">{summary.total_reviews} review{summary.total_reviews !== 1 ? 's' : ''}</p>
+                    </div>
+                </div>
+            )}
+
+            {loading ? (
+                <div className="flex justify-center py-10">
+                    <div className="w-6 h-6 border-2 border-[#1C398E] border-t-transparent rounded-full animate-spin" />
+                </div>
+            ) : reviews.length === 0 ? (
+                <div className="text-center py-10">
+                    <Star size={28} className="text-gray-200 mx-auto mb-2" />
+                    <p className="text-sm text-gray-400">No reviews yet for this doctor.</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {reviews.map(r => (
+                        <div key={r.id} className="p-4 border border-gray-100 rounded-xl">
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
+                                <div>
+                                    <p className="text-sm font-bold text-gray-800">{r.patient_name || 'Patient'}</p>
+                                    <p className="text-xs text-gray-400">{formatDate(r.created_at)}</p>
+                                </div>
+                                <StarDisplay value={r.stars} size={12} />
+                            </div>
+                            {r.message && <p className="text-sm text-gray-600 leading-relaxed">{r.message}</p>}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </ModalShell>
+    );
+};
+
+// ── Rating Badge (inline on card) ─────────────────────────────
+const RatingBadge = ({ doctorUserId, onSeeReviews }) => {
+    const [summary, setSummary] = useState(null);
+
+    useEffect(() => {
+        fetch(`${API}/doctor-reviews/${doctorUserId}/summary`)
+            .then(r => r.json())
+            .then(setSummary)
+            .catch(() => {});
+    }, [doctorUserId]);
+
+    if (!summary) return null;
+
+    if (summary.total_reviews === 0) return (
+        <p className="text-xs text-gray-300 italic">No reviews yet</p>
+    );
+
+    return (
+        <div className="flex items-center gap-2">
+            <StarDisplay value={summary.average_stars} size={12} />
+            <span className="text-xs font-bold text-gray-700">{summary.average_stars}</span>
+            <button onClick={e => { e.stopPropagation(); onSeeReviews(); }}
+                className="cursor-pointer text-xs text-[#1C398E] font-semibold hover:underline ml-auto">
+                See reviews ({summary.total_reviews})
+            </button>
+        </div>
+    );
+};
+
 const inputCls = "w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1C398E]/30 focus:border-[#1C398E]/50 transition-all appearance-none";
 const labelCls = "block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2";
 
 const ViewDoctors = () => {
     const navigate = useNavigate();
-    const [doctors, setDoctors]               = useState([]);
+    const [doctors, setDoctors]                 = useState([]);
     const [filteredDoctors, setFilteredDoctors] = useState([]);
-    const [loading, setLoading]               = useState(true);
-    const [error, setError]                   = useState(null);
-    const [searchTerm, setSearchTerm]         = useState("");
+    const [loading, setLoading]                 = useState(true);
+    const [error, setError]                     = useState(null);
+    const [searchTerm, setSearchTerm]           = useState("");
     const [showFilterModal, setShowFilterModal] = useState(false);
-    const [currentPage, setCurrentPage]       = useState(1);
-    const [currentUser, setCurrentUser]       = useState(null);
+    const [currentPage, setCurrentPage]         = useState(1);
+    const [currentUser, setCurrentUser]         = useState(null);
     const doctorsPerPage = 12;
 
-    const [filters, setFilters] = useState({ specialty: "", gender: "", country: "", county: "", city: "", ageRanges: [] });
+    const [filters, setFilters]       = useState({ specialty: "", gender: "", country: "", county: "", city: "", ageRanges: [] });
     const [showMakeAppointmentModal, setShowMakeAppointmentModal] = useState(false);
-    const [selectedDoctor, setSelectedDoctor] = useState(null);
-    const [filterOptions, setFilterOptions]   = useState({ specialties: [], countries: [], counties: [], cities: [] });
+    const [selectedDoctor, setSelectedDoctor]   = useState(null);
+    const [filterOptions, setFilterOptions]     = useState({ specialties: [], countries: [], counties: [], cities: [] });
+    const [reviewsDoctor, setReviewsDoctor]     = useState(null); // doctor whose reviews modal is open
 
     const ageRangeOptions = [
         { label: "25–35", min: 25, max: 35 },
@@ -66,7 +178,7 @@ const ViewDoctors = () => {
             const token = localStorage.getItem('access_token');
             if (!token) { navigate('/login'); return; }
             try {
-                const res = await fetch('http://localhost:8000/me', { headers: { Authorization: `Bearer ${token}` } });
+                const res = await fetch(`${API}/me`, { headers: { Authorization: `Bearer ${token}` } });
                 if (!res.ok) { localStorage.removeItem('access_token'); navigate('/login'); return; }
                 setCurrentUser(await res.json());
             } catch { localStorage.removeItem('access_token'); navigate('/login'); }
@@ -77,9 +189,10 @@ const ViewDoctors = () => {
     useEffect(() => {
         const fetchDoctors = async () => {
             try {
-                const res = await axios.get("http://localhost:8000/doctors", {
+                const res = await axios.get(`${API}/doctors`, {
                     headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` }
                 });
+                console.log("Doctor object:", res.data[0]);
                 const withAge = res.data.map(d => ({ ...d, age: calculateAge(d.date_of_birth) }));
                 setDoctors(withAge);
                 setFilteredDoctors(withAge);
@@ -89,7 +202,7 @@ const ViewDoctors = () => {
                     counties:    [...new Set(res.data.map(d => d.county).filter(Boolean))],
                     cities:      [...new Set(res.data.map(d => d.city).filter(Boolean))],
                 });
-            } catch (err) {
+            } catch {
                 setError("Could not load doctors. Please try again.");
             } finally {
                 setLoading(false);
@@ -130,16 +243,12 @@ const ViewDoctors = () => {
     const indexOfFirst   = indexOfLast - doctorsPerPage;
     const currentDoctors = filteredDoctors.slice(indexOfFirst, indexOfLast);
     const totalPages     = Math.ceil(filteredDoctors.length / doctorsPerPage);
+    const paginate       = (page) => { setCurrentPage(page); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
-    const paginate = (page) => { setCurrentPage(page); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-
-    // ── Active filter pills ───────────────────────────────────
     const FilterPill = ({ label, onRemove }) => (
         <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#1C398E]/8 text-[#1C398E] border border-[#1C398E]/20 rounded-lg text-xs font-semibold">
             {label}
-            <button onClick={onRemove} className="cursor-pointer hover:bg-[#1C398E]/15 rounded p-0.5 transition-colors">
-                <X size={11} />
-            </button>
+            <button onClick={onRemove} className="cursor-pointer hover:bg-[#1C398E]/15 rounded p-0.5 transition-colors"><X size={11} /></button>
         </span>
     );
 
@@ -153,7 +262,7 @@ const ViewDoctors = () => {
 
     return (
         <PatientLayout>
-            {/* ── Filter Modal ── */}
+            {/* Filter Modal */}
             <ModalShell isOpen={showFilterModal} onClose={() => setShowFilterModal(false)} title="Advanced Filters">
                 <div className="space-y-5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -194,7 +303,6 @@ const ViewDoctors = () => {
                             </select>
                         </div>
                     </div>
-
                     <div>
                         <label className={labelCls}>Age Range</label>
                         <div className="flex flex-wrap gap-2">
@@ -203,9 +311,7 @@ const ViewDoctors = () => {
                                 return (
                                     <button key={range.label} onClick={() => toggleAgeRange(range)}
                                         className={`cursor-pointer px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                                            selected
-                                                ? 'bg-[#1C398E] text-white border-[#1C398E]'
-                                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-[#1C398E]/40'
+                                            selected ? 'bg-[#1C398E] text-white border-[#1C398E]' : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-[#1C398E]/40'
                                         }`}>
                                         {range.label} yrs
                                     </button>
@@ -213,35 +319,32 @@ const ViewDoctors = () => {
                             })}
                         </div>
                     </div>
-
                     <div className="flex gap-2 pt-2 border-t border-gray-100">
-                        <button onClick={resetFilters}
-                            className="cursor-pointer flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-200 transition">
-                            Reset
-                        </button>
-                        <button onClick={() => setShowFilterModal(false)}
-                            className="cursor-pointer flex-1 px-4 py-2.5 bg-[#1C398E] text-white text-sm font-semibold rounded-xl hover:bg-[#1C398E]/90 transition">
-                            Apply Filters
-                        </button>
+                        <button onClick={resetFilters} className="cursor-pointer flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-200 transition">Reset</button>
+                        <button onClick={() => setShowFilterModal(false)} className="cursor-pointer flex-1 px-4 py-2.5 bg-[#1C398E] text-white text-sm font-semibold rounded-xl hover:bg-[#1C398E]/90 transition">Apply Filters</button>
                     </div>
                 </div>
             </ModalShell>
 
+            {/* Reviews Modal */}
+            <ReviewsModal
+                isOpen={!!reviewsDoctor}
+                onClose={() => setReviewsDoctor(null)}
+                doctor={reviewsDoctor}
+            />
+
             <div className="space-y-5">
-                {/* Header */}
                 <div>
                     <h1 className="text-xl font-bold text-gray-800">Find a Doctor</h1>
                     <p className="text-xs text-gray-400 mt-0.5">Discover and book appointments with top specialists</p>
                 </div>
 
-                {/* Error */}
                 {error && (
                     <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 px-4 py-3 rounded-xl">
                         <AlertCircle size={15} /> {error}
                     </div>
                 )}
 
-                {/* Search + filter bar */}
                 <div>
                     <div className="flex flex-col sm:flex-row gap-3">
                         <div className="relative flex-1">
@@ -254,14 +357,11 @@ const ViewDoctors = () => {
                             className="cursor-pointer relative flex items-center gap-2 px-4 py-2.5 bg-[#1C398E] text-white text-sm font-semibold rounded-xl hover:bg-[#1C398E]/90 transition shadow-sm flex-shrink-0">
                             <Filter size={14} /> Filters
                             {activeFilterCount > 0 && (
-                                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-                                    {activeFilterCount}
-                                </span>
+                                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">{activeFilterCount}</span>
                             )}
                         </button>
                     </div>
 
-                    {/* Active filter pills */}
                     {activeFilterCount > 0 && (
                         <div className="mt-3 flex flex-wrap gap-2 pt-3 border-t border-gray-50">
                             {filters.specialty && <FilterPill label={`Specialty: ${filters.specialty}`} onRemove={() => setFilters({ ...filters, specialty: "" })} />}
@@ -270,19 +370,15 @@ const ViewDoctors = () => {
                             {filters.county    && <FilterPill label={`County: ${filters.county}`} onRemove={() => setFilters({ ...filters, county: "" })} />}
                             {filters.city      && <FilterPill label={`City: ${filters.city}`} onRemove={() => setFilters({ ...filters, city: "" })} />}
                             {filters.ageRanges.length > 0 && <FilterPill label={`Age: ${filters.ageRanges.map(r => r.label).join(', ')}`} onRemove={() => setFilters({ ...filters, ageRanges: [] })} />}
-                            <button onClick={resetFilters} className="cursor-pointer text-xs text-red-500 font-semibold hover:text-red-600 transition-colors">
-                                Clear all
-                            </button>
+                            <button onClick={resetFilters} className="cursor-pointer text-xs text-red-500 font-semibold hover:text-red-600 transition-colors">Clear all</button>
                         </div>
                     )}
                 </div>
 
-                {/* Results count */}
                 <p className="text-xs text-gray-400 font-medium">
                     Showing {Math.min(indexOfFirst + 1, filteredDoctors.length)}–{Math.min(indexOfLast, filteredDoctors.length)} of {filteredDoctors.length} {filteredDoctors.length === 1 ? 'doctor' : 'doctors'}
                 </p>
 
-                {/* Doctor cards */}
                 {currentDoctors.length === 0 ? (
                     <div className="bg-white border border-gray-100 rounded-2xl shadow-sm flex flex-col items-center py-16 text-center">
                         <Search size={36} className="text-gray-200 mb-3" />
@@ -302,8 +398,7 @@ const ViewDoctors = () => {
                                 {/* Photo */}
                                 <div className="relative h-48 bg-gradient-to-br from-[#1C398E]/8 to-blue-50 flex-shrink-0 overflow-hidden">
                                     {doctor.profile_picture ? (
-                                        <img src={doctor.profile_picture}
-                                            alt={`${doctor.first_name} ${doctor.last_name}`}
+                                        <img src={doctor.profile_picture} alt={`${doctor.first_name} ${doctor.last_name}`}
                                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center">
@@ -327,10 +422,16 @@ const ViewDoctors = () => {
                                         Dr. {doctor.first_name} {doctor.last_name}
                                     </h2>
 
+                                    {/* ── Rating badge ── */}
+                                    <div className="mb-3">
+                                        <RatingBadge
+                                            doctorUserId={doctor.doctorId}
+                                            onSeeReviews={() => setReviewsDoctor(doctor)}
+                                        />
+                                    </div>
+
                                     {doctor.description && (
-                                        <p className="text-xs text-gray-500 mb-3 line-clamp-2 leading-relaxed">
-                                            {doctor.description}
-                                        </p>
+                                        <p className="text-xs text-gray-500 mb-3 line-clamp-2 leading-relaxed">{doctor.description}</p>
                                     )}
 
                                     <div className="space-y-1.5 flex-1 mb-4">
@@ -342,8 +443,7 @@ const ViewDoctors = () => {
                                         )}
                                         {doctor.phone && (
                                             <p className="flex items-center gap-2 text-xs text-gray-500">
-                                                <Phone size={12} className="text-[#1C398E] flex-shrink-0" />
-                                                {doctor.phone}
+                                                <Phone size={12} className="text-[#1C398E] flex-shrink-0" /> {doctor.phone}
                                             </p>
                                         )}
                                         {(doctor.city || doctor.county || doctor.country) && (
@@ -377,14 +477,12 @@ const ViewDoctors = () => {
                     </div>
                 )}
 
-                {/* Pagination */}
                 {totalPages > 1 && (
                     <div className="flex justify-center items-center gap-2 pt-4">
                         <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1}
                             className="cursor-pointer p-2 border border-gray-200 rounded-xl text-gray-500 hover:border-[#1C398E]/40 hover:text-[#1C398E] disabled:opacity-30 disabled:cursor-not-allowed transition">
                             <ChevronLeft size={16} />
                         </button>
-
                         <div className="flex gap-1">
                             {[...Array(totalPages)].map((_, i) => {
                                 const page = i + 1;
@@ -393,9 +491,7 @@ const ViewDoctors = () => {
                                 if (show) return (
                                     <button key={page} onClick={() => paginate(page)}
                                         className={`cursor-pointer w-9 h-9 rounded-xl text-sm font-semibold transition-all ${
-                                            currentPage === page
-                                                ? 'bg-[#1C398E] text-white shadow-sm'
-                                                : 'border border-gray-200 text-gray-600 hover:border-[#1C398E]/40 hover:text-[#1C398E]'
+                                            currentPage === page ? 'bg-[#1C398E] text-white shadow-sm' : 'border border-gray-200 text-gray-600 hover:border-[#1C398E]/40 hover:text-[#1C398E]'
                                         }`}>
                                         {page}
                                     </button>
@@ -404,7 +500,6 @@ const ViewDoctors = () => {
                                 return null;
                             })}
                         </div>
-
                         <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages}
                             className="cursor-pointer p-2 border border-gray-200 rounded-xl text-gray-500 hover:border-[#1C398E]/40 hover:text-[#1C398E] disabled:opacity-30 disabled:cursor-not-allowed transition">
                             <ChevronRight size={16} />

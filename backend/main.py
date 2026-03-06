@@ -29,11 +29,12 @@ from models import (
     AppointmentType, 
     Appointment,
     WorkSchedule,
-    Feedback,
     Message, Treatment, MedicalRecord, Prescription, MedicalDocument,
     SupportTicket,
     TicketMessage,
-    Notification
+    Notification,
+    AppFeedback,
+    DoctorReview
 )
 from schemas import *
 # ==================== Configuration ====================
@@ -831,6 +832,219 @@ def get_stock_history(
     
     return result
 
+#==================FEEBACK===========================
+
+
+# ══════════════════════════════════════════════════════════════
+# DOCTOR REVIEWS
+# ══════════════════════════════════════════════════════════════
+
+@app.post("/doctor-reviews", response_model=DoctorReviewOut)
+def submit_doctor_review(
+    payload: DoctorReviewCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    appointment = db.query(Appointment).filter(
+        Appointment.id == payload.appointment_id,
+        Appointment.patient_id == current_user.id,
+        Appointment.status == "finalised",  
+    ).first()
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found or not finalised")
+
+    existing = db.query(DoctorReview).filter(
+        DoctorReview.appointment_id == payload.appointment_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Review already submitted for this appointment")
+
+    review = DoctorReview(
+        doctor_id=appointment.doctor_id,
+        patient_id=current_user.id,
+        appointment_id=payload.appointment_id,
+        stars=payload.stars,
+        message=payload.message,
+    )
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+
+    patient_name = f"{current_user.first_name} {current_user.last_name}"
+    create_notification(db, appointment.doctor_id,
+        type="new_review",
+        title="New review received",
+        body=f"{patient_name} left you a {payload.stars}★ review.",
+        entity_type="review", entity_id=review.id)
+
+    review.patient_name = patient_name
+    return review
+
+
+@app.get("/doctor-reviews/{doctor_id}", response_model=list[DoctorReviewOut])
+def get_doctor_reviews(doctor_id: int, db: Session = Depends(get_db)):
+    
+    reviews = db.query(DoctorReview).filter(
+        DoctorReview.doctor_id == doctor_id
+    ).order_by(DoctorReview.created_at.desc()).all()
+
+    for r in reviews:
+        patient = db.query(DBUser).filter(DBUser.id == r.patient_id).first()
+        r.patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Anonymous"
+
+    return reviews
+
+
+@app.get("/doctor-reviews/{doctor_id}/summary", response_model=DoctorRatingSummary)
+def get_doctor_rating_summary(doctor_id: int, db: Session = Depends(get_db)):
+ 
+    result = db.query(
+        func.avg(DoctorReview.stars).label("avg"),
+        func.count(DoctorReview.id).label("total"),
+    ).filter(DoctorReview.doctor_id == doctor_id).first()
+
+    return {
+        "average_stars": round(float(result.avg or 0), 1),
+        "total_reviews": result.total or 0,
+    }
+
+
+@app.get("/my-reviews", response_model=list[DoctorReviewOut])
+def get_my_reviews(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    # Găsește mai întâi doctor-ul din tabela doctors
+    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+    if not doctor:
+        return []
+
+    reviews = db.query(DoctorReview).filter(
+        DoctorReview.doctor_id == doctor.id  # ← ID din tabela doctors
+    ).order_by(DoctorReview.created_at.desc()).all()
+
+    for r in reviews:
+        patient = db.query(DBUser).filter(DBUser.id == r.patient_id).first()
+        r.patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Anonymous"
+
+    return reviews
+
+
+@app.get("/appointments/{appointment_id}/review", response_model=DoctorReviewOut)
+def get_review_for_appointment(
+    appointment_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+  
+    review = db.query(DoctorReview).filter(
+        DoctorReview.appointment_id == appointment_id,
+        DoctorReview.patient_id == current_user.id,
+    ).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="No review found")
+    return review
+
+
+
+
+# ══════════════════════════════════════════════════════════════
+# APP FEEDBACK
+# ══════════════════════════════════════════════════════════════
+
+@app.post("/app-feedback", response_model=AppFeedbackOut)
+def submit_app_feedback(
+    payload: AppFeedbackCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+
+    feedback = AppFeedback(
+        user_id=current_user.id,
+        stars=payload.stars,
+        message=payload.message,
+    )
+    db.add(feedback)
+    db.commit()
+    db.refresh(feedback)
+    return feedback
+
+
+@app.get("/app-feedback/mine", response_model=AppFeedbackOut)
+def get_my_app_feedback(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+
+    feedback = db.query(AppFeedback).filter(
+        AppFeedback.user_id == current_user.id
+    ).order_by(AppFeedback.created_at.desc()).first()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="No feedback found")
+    return feedback
+
+@app.get("/admin/app-feedback")
+def admin_get_all_feedback(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role != "administrator":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    feedbacks = db.query(AppFeedback).order_by(AppFeedback.created_at.desc()).all()
+
+    result = []
+    for f in feedbacks:
+        user = db.query(DBUser).filter(DBUser.id == f.user_id).first()
+        result.append({
+            "id":         f.id,
+            "user_id":    f.user_id,
+            "user_name":  f"{user.first_name} {user.last_name}" if user else "Unknown",
+            "user_email": user.email if user else "",
+            "stars":      f.stars,
+            "message":    f.message,
+            "created_at": f.created_at,
+        })
+
+    return result
+
+
+@app.delete("/admin/app-feedback/{feedback_id}")
+def admin_delete_feedback(
+    feedback_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role != "administrator":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    feedback = db.query(AppFeedback).filter(AppFeedback.id == feedback_id).first()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+
+    db.delete(feedback)
+    db.commit()
+    return {"message": "Deleted"}
+
+
+@app.get("/app-feedback/public")
+def get_public_feedback(db: Session = Depends(get_db)):
+    """Feedback public pentru pagina de start — fără autentificare."""
+    feedbacks = db.query(AppFeedback).filter(
+        AppFeedback.message != None,
+        AppFeedback.message != ""
+    ).order_by(AppFeedback.created_at.desc()).limit(20).all()
+
+    result = []
+    for f in feedbacks:
+        user = db.query(DBUser).filter(DBUser.id == f.user_id).first()
+        result.append({
+            "id":        f.id,
+            "user_name": f"{user.first_name} {user.last_name}" if user else "Anonymous",
+            "stars":     f.stars,
+            "message":   f.message,
+        })
+    return result
 
 # ==================== BLOG CRUD ROUTES  ====================
 
@@ -1360,18 +1574,21 @@ def create_appointment(
         
     # CORECTAT: Folosim notația cu punct (.role)
     elif current_user.role == "doctor":
-        # Căutăm ID-ul doctorului curent
-        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first() # CORECTAT: .id
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
         if not doctor:
-             raise HTTPException(status_code=400, detail="Doctor profile not found.")
+            raise HTTPException(status_code=400, detail="Doctor profile not found.")
         
         target_doctor_id = doctor.id
         
-        # Doctorul trebuie să specifice patient_id-ul țintă
         if not appointment_in.patient_id:
             raise HTTPException(status_code=400, detail="Patient ID required when scheduling as a Doctor.")
-            
-        target_patient_id = appointment_in.patient_id
+        
+        # ← ADAUGĂ ASTA: convertește user_id → patient.id
+        patient = db.query(Patient).filter(Patient.user_id == appointment_in.patient_id).first()
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient profile not found.")
+        
+        target_patient_id = patient.id  # acum e 4, nu 7
         
     else:
         # Rol nepermis (administrator sau alt rol)
@@ -1890,413 +2107,6 @@ def get_schedule_for_day(doctor_id: int, date: str, db: Session = Depends(get_db
 
 
 
-# ============ FEEDBACK ENDPOINTS ============
-
-@app.post("/feedback/doctor-to-patient", response_model=FeedbackResponse, status_code=201, tags=["Feedback"])
-async def create_doctor_to_patient_feedback(
-    feedback_data: FeedbackDoctorToPatientCreate,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)  
-):
-    """Doctor dă feedback la pacient după consultație"""
-    
-    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
-    if not doctor:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only doctors can provide feedback to patients"
-        )
-    
-    patient = db.query(Patient).filter(Patient.id == feedback_data.to_patient_id).first()
-    if not patient:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient not found"
-        )
-    
-    new_feedback = Feedback(
-        from_user_id=current_user.id,
-        feedback_category=FeedbackCategory.DOCTOR_TO_PATIENT,
-        to_patient_id=feedback_data.to_patient_id,
-        appointment_id=feedback_data.appointment_id,
-        comment=feedback_data.comment,
-        status=FeedbackStatus.PENDING
-    )
-    
-    db.add(new_feedback)
-    db.commit()
-    db.refresh(new_feedback)
-    
-    return new_feedback
-
-
-@app.post("/feedback/patient-to-doctor", response_model=FeedbackResponse, status_code=201, tags=["Feedback"])
-async def create_patient_to_doctor_feedback(
-    feedback_data: FeedbackPatientToDoctorCreate,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Pacient dă feedback la doctor"""
-    
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only patients can provide feedback to doctors"
-        )
-    
-    doctor = db.query(Doctor).filter(Doctor.id == feedback_data.to_doctor_id).first()
-    if not doctor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Doctor not found"
-        )
-    
-    new_feedback = Feedback(
-        from_user_id=current_user.id,
-        feedback_category=FeedbackCategory.PATIENT_TO_DOCTOR,
-        to_doctor_id=feedback_data.to_doctor_id,
-        appointment_id=feedback_data.appointment_id,
-        rating=feedback_data.rating,
-        punctuality_rating=feedback_data.punctuality_rating,
-        communication_rating=feedback_data.communication_rating,
-        professionalism_rating=feedback_data.professionalism_rating,
-        equipment_rating=feedback_data.equipment_rating,
-        comment=feedback_data.comment,
-        is_public=feedback_data.is_public,
-        status=FeedbackStatus.PENDING
-    )
-    
-    db.add(new_feedback)
-    db.commit()
-    db.refresh(new_feedback)
-    
-    return new_feedback
-
-
-@app.post("/feedback/app-feedback", response_model=FeedbackResponse, status_code=201, tags=["Feedback"])
-async def create_app_feedback(
-    feedback_data: FeedbackUserToAppCreate,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Utilizator dă feedback la aplicație"""
-    
-    new_feedback = Feedback(
-        from_user_id=current_user.id,
-        feedback_category=FeedbackCategory.USER_TO_APP,
-        app_section=feedback_data.app_section,
-        severity=feedback_data.severity,
-        title=feedback_data.title,
-        comment=feedback_data.comment,
-        status=FeedbackStatus.PENDING
-    )
-    
-    db.add(new_feedback)
-    db.commit()
-    db.refresh(new_feedback)
-    
-    return new_feedback
-
-
-@app.get("/feedback/my-feedbacks", response_model=List[FeedbackResponse], tags=["Feedback"])
-async def get_my_feedbacks(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
-    category: Optional[FeedbackCategory] = None,
-    status_filter: Optional[FeedbackStatus] = None,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Obține feedback-urile date"""
-    
-    query = db.query(Feedback).filter(Feedback.from_user_id == current_user.id)
-    
-    if category:
-        query = query.filter(Feedback.feedback_category == category)
-    
-    if status_filter:
-        query = query.filter(Feedback.status == status_filter)
-    
-    feedbacks = query.order_by(Feedback.created_at.desc()).offset(skip).limit(limit).all()
-    return feedbacks
-
-
-@app.get("/feedback/received", response_model=List[FeedbackResponse], tags=["Feedback"])
-async def get_received_feedbacks(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
-    status_filter: Optional[FeedbackStatus] = None,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Obține feedback-urile primite"""
-    
-    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    
-    if doctor:
-        query = db.query(Feedback).filter(
-            Feedback.feedback_category == FeedbackCategory.PATIENT_TO_DOCTOR,
-            Feedback.to_doctor_id == doctor.id
-        )
-    elif patient:
-        query = db.query(Feedback).filter(
-            Feedback.feedback_category == FeedbackCategory.DOCTOR_TO_PATIENT,
-            Feedback.to_patient_id == patient.id
-        )
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only doctors and patients can receive feedbacks"
-        )
-    
-    if status_filter:
-        query = query.filter(Feedback.status == status_filter)
-    
-    feedbacks = query.order_by(Feedback.created_at.desc()).offset(skip).limit(limit).all()
-    return feedbacks
-
-
-@app.get("/feedback/app-feedbacks", response_model=List[FeedbackResponse], tags=["Feedback"])
-async def get_app_feedbacks(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
-    severity: Optional[str] = None,
-    status_filter: Optional[FeedbackStatus] = None,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Admin obține feedback-uri la aplicație"""
-    
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can view app feedbacks"
-        )
-    
-    query = db.query(Feedback).filter(
-        Feedback.feedback_category == FeedbackCategory.USER_TO_APP
-    )
-    
-    if severity:
-        query = query.filter(Feedback.severity == severity)
-    
-    if status_filter:
-        query = query.filter(Feedback.status == status_filter)
-    
-    feedbacks = query.order_by(
-        Feedback.severity.desc(),
-        Feedback.created_at.desc()
-    ).offset(skip).limit(limit).all()
-    
-    return feedbacks
-
-
-@app.get("/feedback/{feedback_id}", response_model=FeedbackDetailResponse, tags=["Feedback"])
-async def get_feedback_by_id(
-    feedback_id: int,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Obține un feedback specific"""
-    
-    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
-    
-    if not feedback:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Feedback not found"
-        )
-    
-    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    
-    has_access = (
-        feedback.from_user_id == current_user.id or
-        (doctor and feedback.to_doctor_id == doctor.id) or
-        (patient and feedback.to_patient_id == patient.id) or
-        current_user.role == "admin"
-    )
-    
-    if not has_access:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to view this feedback"
-        )
-    
-    return feedback
-
-
-@app.get("/feedback/doctor/{doctor_id}/stats", response_model=DoctorFeedbackStats, tags=["Feedback"])
-async def get_doctor_feedback_stats(
-    doctor_id: int,
-    db: Session = Depends(get_db)
-):
-    """Statistici feedback doctor"""
-    
-    doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
-    if not doctor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Doctor not found"
-        )
-    
-    feedbacks = db.query(Feedback).filter(
-        Feedback.feedback_category == FeedbackCategory.PATIENT_TO_DOCTOR,
-        Feedback.to_doctor_id == doctor_id,
-        Feedback.status != FeedbackStatus.ARCHIVED
-    ).all()
-    
-    if not feedbacks:
-        return DoctorFeedbackStats(
-            total_feedbacks=0,
-            average_rating=0.0,
-            avg_punctuality=None,
-            avg_communication=None,
-            avg_professionalism=None,
-            avg_equipment=None,
-            five_star_count=0,
-            four_star_count=0,
-            three_star_count=0,
-            two_star_count=0,
-            one_star_count=0
-        )
-    
-    total = len(feedbacks)
-    ratings = [f.rating for f in feedbacks if f.rating]
-    
-    return DoctorFeedbackStats(
-        total_feedbacks=total,
-        average_rating=sum(ratings) / len(ratings) if ratings else 0.0,
-        avg_punctuality=sum(f.punctuality_rating for f in feedbacks if f.punctuality_rating) / 
-                       len([f for f in feedbacks if f.punctuality_rating]) 
-                       if any(f.punctuality_rating for f in feedbacks) else None,
-        avg_communication=sum(f.communication_rating for f in feedbacks if f.communication_rating) / 
-                         len([f for f in feedbacks if f.communication_rating])
-                         if any(f.communication_rating for f in feedbacks) else None,
-        avg_professionalism=sum(f.professionalism_rating for f in feedbacks if f.professionalism_rating) / 
-                           len([f for f in feedbacks if f.professionalism_rating])
-                           if any(f.professionalism_rating for f in feedbacks) else None,
-        avg_equipment=sum(f.equipment_rating for f in feedbacks if f.equipment_rating) / 
-                     len([f for f in feedbacks if f.equipment_rating])
-                     if any(f.equipment_rating for f in feedbacks) else None,
-        five_star_count=sum(1 for f in feedbacks if f.rating == 5),
-        four_star_count=sum(1 for f in feedbacks if f.rating == 4),
-        three_star_count=sum(1 for f in feedbacks if f.rating == 3),
-        two_star_count=sum(1 for f in feedbacks if f.rating == 2),
-        one_star_count=sum(1 for f in feedbacks if f.rating == 1)
-    )
-
-
-@app.patch("/feedback/{feedback_id}/status", response_model=FeedbackResponse, tags=["Feedback"])
-async def update_feedback_status(
-    feedback_id: int,
-    status_data: FeedbackStatusUpdate,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Update status feedback"""
-    
-    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
-    
-    if not feedback:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Feedback not found"
-        )
-    
-    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    
-    has_access = (
-        (doctor and feedback.to_doctor_id == doctor.id) or
-        (patient and feedback.to_patient_id == patient.id) or
-        current_user.role == "admin"
-    )
-    
-    if not has_access:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to update this feedback"
-        )
-    
-    feedback.status = status_data.status
-    db.commit()
-    db.refresh(feedback)
-    
-    return feedback
-
-
-@app.post("/feedback/{feedback_id}/respond", response_model=FeedbackResponse, tags=["Feedback"])
-async def respond_to_feedback(
-    feedback_id: int,
-    response_data: FeedbackResponseCreate,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Răspunde la feedback"""
-    
-    from sqlalchemy import func
-    
-    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
-    
-    if not feedback:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Feedback not found"
-        )
-    
-    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
-    
-    has_access = (
-        (doctor and feedback.to_doctor_id == doctor.id) or
-        (current_user.role == "admin" and feedback.feedback_category == FeedbackCategory.USER_TO_APP)
-    )
-    
-    if not has_access:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to respond to this feedback"
-        )
-    
-    feedback.response = response_data.response
-    feedback.responded_by = current_user.id
-    feedback.responded_at = func.now()
-    feedback.status = FeedbackStatus.RESPONDED
-    
-    db.commit()
-    db.refresh(feedback)
-    
-    return feedback
-
-
-@app.delete("/feedback/{feedback_id}", status_code=204, tags=["Feedback"])
-async def delete_feedback(
-    feedback_id: int,
-    db: Session = Depends(get_db),
-    current_user: DBUser = Depends(get_current_user)
-):
-    """Șterge feedback"""
-    
-    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
-    
-    if not feedback:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Feedback not found"
-        )
-    
-    if feedback.from_user_id != current_user.id and current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to delete this feedback"
-        )
-    
-    db.delete(feedback)
-    db.commit()
-    
-    return None
 
 
 
@@ -2755,49 +2565,40 @@ def delete_message(
 
 @app.get("/doctor/appointment-patients")
 def get_doctor_appointment_patients(
+    db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
 ):
-    """
-    Returnează lista unică de pacienți care au sau au avut programări
-    cu doctorul curent. Folosit în chat pentru New Conversation.
-    """
-    if current_user.role != UserRole.doctor:
-        raise HTTPException(status_code=403, detail="Only doctors can access this endpoint")
+    if current_user.role != "doctor":
+        raise HTTPException(status_code=403, detail="Access denied")
 
-    # Găsim doctor_id pentru userul curent
     doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor profile not found")
 
-    # Găsim toți pacienții unici din programările acestui doctor
-    patient_ids = db.query(Appointment.patient_id)\
+    # patient_id din appointments → tabela patients → user_id → tabela users
+    patient_records = db.query(Patient)\
+        .join(Appointment, Appointment.patient_id == Patient.id)\
         .filter(Appointment.doctor_id == doctor.id)\
-        .distinct()\
-        .all()
+        .distinct().all()
 
-    patient_ids = [row[0] for row in patient_ids]
+    if not patient_records:
+        return []
 
-    result = []
-    for patient_id in patient_ids:
-        patient = db.query(Patient).filter(Patient.id == patient_id).first()
-        if not patient:
-            continue
-        user = db.query(DBUser).filter(DBUser.id == patient.user_id).first()
-        if not user:
-            continue
-        result.append({
-            "id": user.id,           
-            "patient_id": patient.id,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
-            "phone": user.phone,
-            "profile_picture": user.profile_picture,
-        })
+    user_ids = [p.user_id for p in patient_records]
+    users = db.query(DBUser).filter(DBUser.id.in_(user_ids)).all()
 
-    return result
-
+    return [
+        {
+            "id":              u.id,
+            "first_name":      u.first_name,
+            "last_name":       u.last_name,
+            "email":           u.email,
+            "phone":           u.phone,
+            "profile_picture": u.profile_picture,
+            "role":            u.role,
+        }
+        for u in users
+    ]
 
 
 DOCUMENTS_FOLDER = Path("static/uploads/medical_documents")
@@ -3840,6 +3641,21 @@ def notify_feedback_request(db: Session, appointment_id: int):
 
 # ── API Routes ────────────────────────────────────────────────
 
+
+
+@app.get("/notifications/unread-count")
+def get_unread_count(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Returns total unread notification count — used for the bell badge."""
+    count = db.query(func.count(Notification.id)).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,
+    ).scalar()
+    return {"count": count or 0}
+
+
 @app.get("/notifications")
 def get_notifications(
     limit: int = Query(20, le=50),
@@ -3867,19 +3683,6 @@ def get_notifications(
         }
         for n in notifications
     ]
-
-
-@app.get("/notifications/unread-count")
-def get_unread_count(
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Returns total unread notification count — used for the bell badge."""
-    count = db.query(func.count(Notification.id)).filter(
-        Notification.user_id == current_user.id,
-        Notification.is_read == False,
-    ).scalar()
-    return {"count": count or 0}
 
 
 @app.patch("/notifications/{notification_id}/read")
@@ -3930,3 +3733,5 @@ def delete_notification(
     db.delete(notif)
     db.commit()
     return {"ok": True}
+
+

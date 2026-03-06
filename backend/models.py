@@ -24,6 +24,27 @@ class Status(str, enum.Enum):
     inactive = "inactive"
     suspended = "suspended"
 
+#==============FEEDBACK================
+class DoctorReview(Base):
+    __tablename__ = "doctor_reviews"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    doctor_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    patient_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    appointment_id = Column(Integer, ForeignKey("appointments.id", ondelete="CASCADE"), nullable=False, unique=True)
+    stars          = Column(Integer, CheckConstraint("stars BETWEEN 1 AND 5"), nullable=False)
+    message        = Column(Text, nullable=True)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+
+class AppFeedback(Base):
+    __tablename__ = "app_feedback"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    stars      = Column(Integer, CheckConstraint("stars BETWEEN 1 AND 5"), nullable=False)
+    message    = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class User(Base):
     __tablename__ = "users"
@@ -47,7 +68,6 @@ class User(Base):
 
     doctor = relationship("Doctor", uselist=False, back_populates="user")
     patient = relationship("Patient", uselist=False, back_populates="user")
-    feedbacks_given = relationship("Feedback", foreign_keys="Feedback.from_user_id", back_populates="from_user")
     support_tickets = relationship("SupportTicket", back_populates="user")
    
 
@@ -207,131 +227,6 @@ class Appointment(Base):
 
 
 
-# =============== FEEDBACK ==================
-class Feedback(Base):
-    __tablename__ = "feedback"
-    
-    # Primary Key
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # Cine dă feedback
-    from_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    
-    # Tip feedback
-    feedback_category = Column(
-        String(50), 
-        nullable=False,
-        index=True
-    )
-    
-    # Feedback DOCTOR -> PATIENT
-    to_patient_id = Column(Integer, ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
-    
-    # Feedback PATIENT -> DOCTOR
-    to_doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True)
-    
-    # Comun
-    appointment_id = Column(Integer, ForeignKey("appointments.id", ondelete="SET NULL"), nullable=True)
-    
-    # Rating
-    rating = Column(Integer, nullable=True)
-    punctuality_rating = Column(Integer, nullable=True)
-    communication_rating = Column(Integer, nullable=True)
-    professionalism_rating = Column(Integer, nullable=True)
-    equipment_rating = Column(Integer, nullable=True)
-    
-    # Conținut
-    title = Column(String(255), nullable=True)
-    comment = Column(Text, nullable=True)
-    
-    # Pentru feedback la aplicație
-    app_section = Column(String(100), nullable=True)
-    severity = Column(String(20), nullable=True)
-    
-    # Status
-    status = Column(String(50), nullable=False, default="pending", index=True)
-    is_anonymous = Column(Boolean, default=False)
-    is_public = Column(Boolean, default=False)
-    
-    # Răspuns
-    response = Column(Text, nullable=True)
-    responded_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    responded_at = Column(TIMESTAMP(timezone=True), nullable=True)
-    
-    # Timestamps
-    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
-    
-    # Relationships
-    from_user = relationship("User", foreign_keys=[from_user_id], back_populates="feedbacks_given")
-    to_patient = relationship("Patient", foreign_keys=[to_patient_id])
-    to_doctor = relationship("Doctor", foreign_keys=[to_doctor_id])
-    appointment = relationship("Appointment", foreign_keys=[appointment_id])
-    responder = relationship("User", foreign_keys=[responded_by])
-    
-    # Constraints
-    __table_args__ = (
-        CheckConstraint(
-            "feedback_category IN ('doctor_to_patient', 'patient_to_doctor', 'user_to_app')",
-            name="check_feedback_category"
-        ),
-        CheckConstraint(
-            "rating IS NULL OR (rating >= 1 AND rating <= 5)",
-            name="check_rating_range"
-        ),
-        CheckConstraint(
-            "punctuality_rating IS NULL OR (punctuality_rating >= 1 AND punctuality_rating <= 5)",
-            name="check_punctuality_rating"
-        ),
-        CheckConstraint(
-            "communication_rating IS NULL OR (communication_rating >= 1 AND communication_rating <= 5)",
-            name="check_communication_rating"
-        ),
-        CheckConstraint(
-            "professionalism_rating IS NULL OR (professionalism_rating >= 1 AND professionalism_rating <= 5)",
-            name="check_professionalism_rating"
-        ),
-        CheckConstraint(
-            "equipment_rating IS NULL OR (equipment_rating >= 1 AND equipment_rating <= 5)",
-            name="check_equipment_rating"
-        ),
-        CheckConstraint(
-            "status IN ('pending', 'reviewed', 'responded', 'resolved', 'archived')",
-            name="check_status"
-        ),
-        CheckConstraint(
-            "severity IS NULL OR severity IN ('low', 'medium', 'high', 'critical')",
-            name="check_severity"
-        ),
-        CheckConstraint(
-            "comment IS NOT NULL OR title IS NOT NULL",
-            name="check_has_content"
-        ),
-        # Integritate date
-        CheckConstraint(
-            "(feedback_category != 'doctor_to_patient') OR "
-            "(to_patient_id IS NOT NULL AND to_doctor_id IS NULL AND app_section IS NULL)",
-            name="check_doctor_to_patient"
-        ),
-        CheckConstraint(
-            "(feedback_category != 'patient_to_doctor') OR "
-            "(to_doctor_id IS NOT NULL AND to_patient_id IS NULL AND app_section IS NULL)",
-            name="check_patient_to_doctor"
-        ),
-        CheckConstraint(
-            "(feedback_category != 'user_to_app') OR "
-            "(app_section IS NOT NULL AND to_patient_id IS NULL AND to_doctor_id IS NULL)",
-            name="check_user_to_app"
-        ),
-        Index('idx_feedback_from_user', 'from_user_id'),
-        Index('idx_feedback_to_patient', 'to_patient_id'),
-        Index('idx_feedback_to_doctor', 'to_doctor_id'),
-        Index('idx_feedback_appointment', 'appointment_id'),
-        Index('idx_feedback_app_section', 'app_section'),
-    )
-
-
-
 # ======================= CHAT ==============================
 class Message(Base):
     __tablename__ = "messages"
@@ -473,3 +368,6 @@ class Notification(Base):
     created_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     user = relationship("User")
+
+
+
