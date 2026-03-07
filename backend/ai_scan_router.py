@@ -137,13 +137,13 @@ def build_results(probabilities: np.ndarray, threshold: float = 0.40):
     # Dacă nicio clasă nu depășește 40% → dinții par sănătoși
     if not results:
         results.append({
-            "condition":      "Healthy Teeth",
+            "condition":      "No Detected Conditions",
             "confidence":     round(float(1 - np.max(probabilities)) * 100 + float(np.max(probabilities)) * 100, 1),
-            "severity":       "good",
-            "icon":           "✅",
-            "description":    "No significant dental conditions were detected in the analyzed image. Your teeth appear to be in good condition.",
-            "recommendation": "Keep up your oral hygiene routine! Regular check-ups every 6 months are still recommended.",
-            "is_healthy":     True,
+            "severity":       "info",
+            "icon":           "ℹ️",
+            "description":    "The AI analysis did not detect any of the supported dental conditions in the analyzed image.",
+            "recommendation": "This result only refers to the conditions that the AI model is trained to detect. If you have concerns about your oral health, consider consulting a dental professional.",
+            "is_healthy":     False,
         })
 
     return results
