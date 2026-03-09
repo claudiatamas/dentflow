@@ -16,6 +16,13 @@ const SEVERITY_CONFIG = {
     severe:   { label: 'Severe',   color: '#7c3aed', bg: 'rgba(124,58,237,0.08)', border: 'rgba(124,58,237,0.25)' },
 };
 
+// ── Model short labels ────────────────────────────────────────
+const MODEL_SHORT = {
+    'MobileNetV2': 'MobileNet',
+    'ResNet50':    'ResNet',
+    'CustomCNN':   'CNN',
+};
+
 // ── Scan line overlay ─────────────────────────────────────────
 const ScanOverlay = ({ active }) => {
     if (!active) return null;
@@ -44,12 +51,14 @@ const ScanOverlay = ({ active }) => {
 // ── Result Card ───────────────────────────────────────────────
 const ResultCard = ({ result, delay }) => {
     const cfg = SEVERITY_CONFIG[result.severity] || SEVERITY_CONFIG.mild;
-    const isHealthy = result.severity === 'good';
+    const hasModels = result.detected_by && result.detected_by.length > 0;
+
     return (
         <div style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: '16px', padding: '18px 20px', animation: 'fadeSlideUp 0.5s ease both', animationDelay: `${delay}ms` }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                 <span style={{ fontSize: 22, lineHeight: 1 }}>{result.icon}</span>
                 <div style={{ flex: 1 }}>
+                    {/* Title + severity badge */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '14px', fontWeight: 700, color: '#1a1a2e', fontFamily: "'Outfit', sans-serif" }}>
                             {result.condition}
@@ -58,16 +67,47 @@ const ResultCard = ({ result, delay }) => {
                             {cfg.label}
                         </span>
                     </div>
+
+                    {/* Description */}
                     <p style={{ fontSize: '12px', color: '#555', lineHeight: 1.5, marginBottom: 8 }}>{result.description}</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: '11px', color: '#aaa' }}>Confidence</span>
-                            <div style={{ width: 70, height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
-                                <div style={{ width: `${result.confidence}%`, height: '100%', background: cfg.color, borderRadius: 999 }} />
-                            </div>
-                            <span style={{ fontSize: '11px', fontWeight: 700, color: cfg.color }}>{result.confidence}%</span>
+
+                    {/* Avg confidence bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: hasModels ? 10 : 8 }}>
+                        <span style={{ fontSize: '11px', color: '#aaa' }}>{hasModels ? 'Avg' : 'Confidence'}</span>
+                        <div style={{ width: 70, height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                            <div style={{ width: `${result.confidence}%`, height: '100%', background: cfg.color, borderRadius: 999 }} />
                         </div>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: cfg.color }}>{result.confidence}%</span>
                     </div>
+
+                    {/* Per-model pills — only present in ensemble mode */}
+                    {hasModels && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                            {result.detected_by.map(m => {
+                                const label = MODEL_SHORT[m.model] || m.model;
+                                return (
+                                    <div key={m.model} style={{
+                                        display: 'flex', alignItems: 'center', gap: 5,
+                                        padding: '4px 10px', borderRadius: 8,
+                                        background: m.detected ? `${cfg.color}15` : 'rgba(156,163,175,0.1)',
+                                        border: `1px solid ${m.detected ? cfg.border : 'rgba(156,163,175,0.25)'}`,
+                                    }}>
+                                        <span style={{ fontSize: '10px', fontWeight: 700, color: m.detected ? cfg.color : '#9ca3af', letterSpacing: '0.04em' }}>
+                                            {label}
+                                        </span>
+                                        <span style={{ fontSize: '11px', fontWeight: 800, color: m.detected ? cfg.color : '#9ca3af' }}>
+                                            {m.confidence}%
+                                        </span>
+                                        <span style={{ fontSize: '10px', color: m.detected ? cfg.color : '#d1d5db' }}>
+                                            {m.detected ? '✓' : '–'}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Recommendation */}
                     {result.recommendation && (
                         <div style={{ background: 'rgba(255,255,255,0.7)', border: `1px solid ${cfg.border}`, borderRadius: 10, padding: '8px 12px', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
                             <span style={{ fontSize: 12, flexShrink: 0 }}>💡</span>
@@ -124,18 +164,14 @@ const WebcamModal = ({ onCapture, onClose }) => {
         canvas.width  = video.videoWidth;
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
-        // Mirror effect (selfie camera)
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0);
-        // Flash animation
         setFlash(true);
         setTimeout(() => setFlash(false), 300);
-        // Convert to File
         canvas.toBlob(blob => {
             if (!blob) return;
             const file = new File([blob], `dental-scan-${Date.now()}.jpg`, { type: 'image/jpeg' });
-            // Stop stream
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(t => t.stop());
             }
@@ -149,7 +185,6 @@ const WebcamModal = ({ onCapture, onClose }) => {
             <div style={{ background: '#0f172a', borderRadius: 24, overflow: 'hidden', width: '100%', maxWidth: 600, boxShadow: '0 25px 60px rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.08)' }}
                 onClick={e => e.stopPropagation()}>
 
-                {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: ready ? '#10b981' : '#f59e0b', boxShadow: ready ? '0 0 8px #10b981' : '0 0 8px #f59e0b' }} />
@@ -162,7 +197,6 @@ const WebcamModal = ({ onCapture, onClose }) => {
                     </button>
                 </div>
 
-                {/* Video area */}
                 <div style={{ position: 'relative', background: '#000', aspectRatio: '16/9' }}>
                     {error ? (
                         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
@@ -173,11 +207,7 @@ const WebcamModal = ({ onCapture, onClose }) => {
                         <>
                             <video ref={videoRef} autoPlay playsInline muted
                                 style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)', display: 'block' }} />
-
-                            {/* Flash overlay */}
                             {flash && <div style={{ position: 'absolute', inset: 0, background: 'white', opacity: 0.7, pointerEvents: 'none' }} />}
-
-                            {/* Corner guides */}
                             {ready && ['tl','tr','bl','br'].map(pos => (
                                 <div key={pos} style={{
                                     position: 'absolute',
@@ -191,13 +221,9 @@ const WebcamModal = ({ onCapture, onClose }) => {
                                     opacity: 0.8,
                                 }} />
                             ))}
-
-                            {/* Center guide oval */}
                             {ready && (
                                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 180, height: 220, border: '2px dashed rgba(0,229,255,0.4)', borderRadius: '50%', pointerEvents: 'none' }} />
                             )}
-
-                            {/* Hint */}
                             {ready && (
                                 <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: '5px 14px', backdropFilter: 'blur(4px)' }}>
                                     <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', fontFamily: "'Outfit', sans-serif" }}>
@@ -205,7 +231,6 @@ const WebcamModal = ({ onCapture, onClose }) => {
                                     </span>
                                 </div>
                             )}
-
                             {!ready && !error && (
                                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <div style={{ width: 32, height: 32, border: '3px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin-slow 0.8s linear infinite' }} />
@@ -216,7 +241,6 @@ const WebcamModal = ({ onCapture, onClose }) => {
                     <canvas ref={canvasRef} style={{ display: 'none' }} />
                 </div>
 
-                {/* Footer */}
                 <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, background: '#0f172a' }}>
                     <button onClick={onClose} style={{ padding: '10px 24px', borderRadius: 12, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                         Cancel
@@ -381,7 +405,7 @@ const DentalAIScan = ({ onBack }) => {
                                 onClick={() => inputRef.current?.click()}
                                 style={{ border: `2px dashed ${dragOver ? '#1C398E' : '#d1d5db'}`, borderRadius: 20, background: dragOver ? 'rgba(28,57,142,0.04)' : 'white', padding: '60px 32px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 2px 16px rgba(0,0,0,0.05)' }}>
                                 <input ref={inputRef}  type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
-                <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
+                                <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
                                 <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(28,57,142,0.1), rgba(59,130,246,0.15))', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', animation: 'pulse-ring 2.5s ease infinite' }}>
                                     <Upload size={28} color="#1C398E" />
                                 </div>
@@ -489,7 +513,6 @@ const DentalAIScan = ({ onBack }) => {
                                     </div>
                                 </div>
 
-                                {/* Model badge */}
                                 {modelUsed && (
                                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(28,57,142,0.07)', border: '1px solid rgba(28,57,142,0.15)', borderRadius: 8, padding: '3px 10px', marginBottom: 16 }}>
                                         <Layers size={11} color="#1C398E" />
@@ -501,7 +524,6 @@ const DentalAIScan = ({ onBack }) => {
                                     {results.map((r, i) => <ResultCard key={i} result={r} delay={i * 120} />)}
                                 </div>
 
-                                {/* Disclaimer */}
                                 <div style={{ marginTop: 16, padding: '12px 14px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                                     <Info size={13} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
                                     <p style={{ fontSize: 11, color: '#92400e', lineHeight: 1.5, margin: 0 }}>
@@ -525,9 +547,9 @@ const DentalAIScan = ({ onBack }) => {
                         <p style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 20 }}>How it works</p>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
                             {[
-                                { step: '01', title: 'Upload your photo', desc: 'A clear front-facing image of your teeth.', icon: '📸' },
-                                { step: '02', title: 'AI analyzes', desc: 'MobileNetV2 detects conditions in seconds.', icon: '🤖' },
-                                { step: '03', title: 'Get your report', desc: 'Detailed results with recommendations.', icon: '📋' },
+                                { step: '01', title: 'Upload your photo', desc: 'A clear front-facing image of your teeth.', icon: '' },
+                                { step: '02', title: 'AI analyzes', desc: 'MobileNetV2 detects conditions in seconds.', icon: '' },
+                                { step: '03', title: 'Get your report', desc: 'Detailed results with recommendations.', icon: '' },
                             ].map(s => (
                                 <div key={s.step} style={{ background: 'white', borderRadius: 16, padding: '20px', textAlign: 'center', border: '1px solid #e9ecf0', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
                                     <span style={{ fontSize: 28 }}>{s.icon}</span>

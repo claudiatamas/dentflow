@@ -558,11 +558,7 @@ const DashboardPatient = () => {
                                             display: 'inline-block', transition: 'transform 0.2s',
                                         }} className="group-hover:translate-x-1">→</span>
                                     </span>
-                                    <div className="flex gap-1">
-                                        {['🦷', '🔍', '🤖'].map((e, i) => (
-                                            <span key={i} style={{ fontSize: 14 }}>{e}</span>
-                                        ))}
-                                    </div>
+                                   
                                 </div>
                             </div>
                         </div>

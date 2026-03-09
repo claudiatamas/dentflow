@@ -23,9 +23,9 @@ CLASS_NAMES = [
     "Calculus",
     "Caries",
     "Gingivitis",
-    "Hypodontia",
     "Mouth Ulcer",
     "Tooth Discoloration",
+    "Hyponodtia",
 ]
 
 # Info per clasă — severity, descriere, recomandare
@@ -115,7 +115,7 @@ def build_results(probabilities: np.ndarray, threshold: float = 0.40):
     """
     Construiește lista de rezultate din probabilități.
     Returnează doar clasele cu probabilitate >= 40%,
-    sortate descrescător.
+    sortate descrescător după confidence.
     """
     results = []
     for idx, prob in enumerate(probabilities):
@@ -195,7 +195,8 @@ async def scan_image(file: UploadFile = File(...)):
 async def scan_image_ensemble(file: UploadFile = File(...)):
     """
     Analizează imaginea folosind toate 3 modele și face media probabilităților (ensemble).
-    Mai lent dar mai precis.
+    Returnează atât rezultatele finale (media), cât și detecțiile individuale per model,
+    sortate după confidence descrescător.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image.")
@@ -208,6 +209,7 @@ async def scan_image_ensemble(file: UploadFile = File(...)):
 
     all_probs = []
     models_used = []
+    per_model_results = {}
 
     for name, loader in [("MobileNetV2", get_mobilenet), ("ResNet50", get_resnet), ("CustomCNN", get_custom)]:
         m = loader()
@@ -216,21 +218,47 @@ async def scan_image_ensemble(file: UploadFile = File(...)):
                 probs = predict_single(m, img_array)
                 all_probs.append(probs)
                 models_used.append(name)
+                # Rezultatele individuale ale fiecărui model, sortate după confidence
+                model_results = build_results(probs)
+                model_results.sort(key=lambda x: x["confidence"], reverse=True)
+                per_model_results[name] = model_results
             except Exception:
                 pass
 
     if not all_probs:
         raise HTTPException(status_code=503, detail="No AI models available.")
 
-    # Media probabilităților
+    # Media probabilităților (ensemble final)
     avg_probs = np.mean(all_probs, axis=0)
-    results = build_results(avg_probs)
+    ensemble_results = build_results(avg_probs)
+
+    # Pentru fiecare condiție detectată în ensemble, adăugăm ce a zis fiecare model
+    for result in ensemble_results:
+        condition = result["condition"]
+        if condition == "No Detected Conditions" or condition not in CLASS_NAMES:
+            result["detected_by"] = []
+            continue
+
+        class_idx = CLASS_NAMES.index(condition)
+        detected_by = []
+        for model_name, probs_arr in zip(models_used, all_probs):
+            conf = round(float(probs_arr[class_idx]) * 100, 1)
+            detected_by.append({
+                "model":      model_name,
+                "confidence": conf,
+                "detected":   conf >= 40.0,
+            })
+        # Modelele care au detectat-o primele, apoi după confidence desc
+        detected_by.sort(key=lambda x: (not x["detected"], -x["confidence"]))
+        result["detected_by"] = detected_by
+
+    ensemble_results.sort(key=lambda x: x["confidence"], reverse=True)
 
     return JSONResponse({
-        "model_used": f"Ensemble ({', '.join(models_used)})",
-        "results": results,
-        "top_condition": results[0]["condition"] if results else None,
-        "classes": CLASS_NAMES,
+        "model_used":    f"Ensemble ({', '.join(models_used)})",
+        "results":       ensemble_results,
+        "top_condition": ensemble_results[0]["condition"] if ensemble_results else None,
+        "classes":       CLASS_NAMES,
     })
 
 
