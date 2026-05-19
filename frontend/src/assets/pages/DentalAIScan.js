@@ -4,9 +4,22 @@ import axios from 'axios';
 
 const API = 'http://localhost:8000';
 
-const getHeaders = () => ({
-    Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-});
+const getHeaders = () => {
+    const token = localStorage.getItem('access_token');
+
+    console.log("==== DEBUG AUTH ====");
+    console.log("TOKEN RAW:", token);
+    console.log("TOKEN LENGTH:", token?.length);
+    console.log("TOKEN EXISTS:", !!token);
+
+    const headers = {
+        Authorization: `Bearer ${token}`,
+    };
+
+    console.log("FINAL HEADERS:", JSON.stringify(headers, null, 2));
+
+    return headers;
+};
 
 // ── Severity config ───────────────────────────────────────────
 const SEVERITY_CONFIG = {
@@ -285,29 +298,44 @@ const DentalAIScan = ({ onBack }) => {
     };
 
     const handleAnalyze = async () => {
-        if (!imageFile) return;
-        setScanning(true);
-        setResults(null);
-        setError(null);
+    if (!imageFile) return;
 
-        const formData = new FormData();
-        formData.append('file', imageFile);
+    setScanning(true);
+    setResults(null);
+    setError(null);
 
-        const endpoint = useEnsemble ? '/ai/scan/ensemble' : '/ai/scan';
+    const token = localStorage.getItem('access_token');
 
-        try {
-            const res = await axios.post(`${API}${endpoint}`, formData, {
-                headers: { ...getHeaders(), 'Content-Type': 'multipart/form-data' },
-            });
-            setResults(res.data.results);
-            setModelUsed(res.data.model_used);
-        } catch (err) {
-            const msg = err?.response?.data?.detail || 'Analysis failed. Please try again.';
-            setError(msg);
-        } finally {
-            setScanning(false);
-        }
-    };
+    console.log("🔥 TOKEN FINAL FOLOSIT:", token);
+
+    const formData = new FormData();
+    formData.append('file', imageFile);
+
+    const endpoint = useEnsemble ? '/ai/scan/ensemble' : '/ai/scan';
+
+    try {
+        const res = await axios.post(`${API}${endpoint}`, formData, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+
+        console.log("✅ RESPONSE:", res.data);
+
+        setResults(res.data.results);
+        setModelUsed(res.data.model_used);
+
+    } catch (err) {
+        console.log("❌ ERROR FULL:", err);
+        console.log("❌ RESPONSE:", err?.response?.data);
+
+        const msg = err?.response?.data?.detail || 'Analysis failed. Please try again.';
+        setError(msg);
+    } finally {
+        setScanning(false);
+    }
+};
 
     const handleCameraCapture = (file) => {
         setWebcamOpen(false);

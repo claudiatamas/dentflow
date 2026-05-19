@@ -1,4 +1,4 @@
-from sqlalchemy import Column,ARRAY,  Integer,text,CheckConstraint, Index ,Time, String, Date, Enum, Numeric,ForeignKey, Text, TIMESTAMP, Float, DateTime, Boolean, UniqueConstraint
+from sqlalchemy import Column,ARRAY, JSON,  Integer,text,CheckConstraint, Index ,Time, String, Date, Enum, Numeric,ForeignKey, Text, TIMESTAMP, Float, DateTime, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from database import Base
@@ -99,6 +99,7 @@ class Patient(Base):
 
     user = relationship("User", back_populates="patient")
     appointments = relationship("Appointment", back_populates="patient", cascade="all, delete-orphan")
+    ai_scans = relationship("AIScanHistory", back_populates="patient")
 
 
 # ==================== Material Model ====================
@@ -371,3 +372,17 @@ class Notification(Base):
 
 
 
+#===================AI SCAN HISTORY===========================
+class AIScanHistory(Base):
+    __tablename__ = "ai_scan_history"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    patient_id     = Column(Integer, ForeignKey("patients.id", ondelete="CASCADE"), nullable=False)
+    scan_mode      = Column(String(20), nullable=False)
+    model_used     = Column(String(100), nullable=False)
+    image_path     = Column(String(500), nullable=True)
+    top_condition  = Column(String(100), nullable=True)
+    results        = Column(JSON, nullable=False)
+    created_at     = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    patient = relationship("Patient", back_populates="ai_scans")

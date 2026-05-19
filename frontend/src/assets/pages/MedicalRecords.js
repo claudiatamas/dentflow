@@ -14,6 +14,8 @@ const getHeaders = () => {
     return { Authorization: `Bearer ${token}` };
 };
 
+
+
 const normalizeDate = (ts) => {
     if (!ts) return '';
     const normalized = ts.includes('T') && !ts.endsWith('Z') ? ts + 'Z' : ts;
@@ -27,6 +29,10 @@ const formatFileSize = (bytes) => {
     return `${(bytes / 1048576).toFixed(1)} MB`;
 };
 
+const getImageUrl = (path) => {
+    if (!path) return '';
+    return `http://localhost:8000/${path}`;
+};
 // ─────────────────────────────────────────────────────────────
 // Avatar
 // ─────────────────────────────────────────────────────────────
@@ -201,6 +207,73 @@ const NewRecordModal = ({ isOpen, onClose, onSave }) => {
     );
 };
 
+const AIScanSection = ({ scans }) => {
+    const [visible, setVisible] = useState({});
+
+    const toggle = (id) => {
+        setVisible(prev => ({
+            ...prev,
+            [id]: !prev[id]
+        }));
+    };
+
+    if (!scans || scans.length === 0) return null;
+
+    return (
+        <div className="mb-6">
+            <h2 className="text-lg font-semibold mb-3 text-gray-800">
+                AI Scan History
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {scans.map(scan => (
+                    <div key={scan.id} className="bg-white border rounded-2xl p-4">
+
+                        {/* TITLU */}
+                        <p className="font-semibold text-sm">
+                            {scan.top_condition}
+                        </p>
+
+                        {/* DATA */}
+                        <p className="text-xs text-gray-400 mb-2">
+                            {new Date(scan.created_at).toLocaleDateString()}
+                        </p>
+
+                        {/* REZULTAT SCURT */}
+                        <div className="text-xs text-gray-600 mb-3">
+                            {scan.results?.slice(0, 2).map((r, i) => (
+                                <p key={i}>
+                                    {r.icon} {r.condition} ({r.confidence}%)
+                                </p>
+                            ))}
+                        </div>
+
+                        {/* IMAGINE */}
+                        {visible[scan.id] ? (
+                            <img
+                                src={getImageUrl(scan.image_path)}
+                                className="w-full rounded-xl border"
+                            />
+                        ) : (
+                            <div className="h-32 bg-gray-100 rounded-xl flex items-center justify-center text-xs text-gray-400">
+                                Image hidden
+                            </div>
+                        )}
+
+                        {/* BUTON */}
+                        <button
+                            onClick={() => toggle(scan.id)}
+                            className="mt-3 px-3 py-1.5 bg-[#1C398E] text-white rounded-xl text-sm"
+                        >
+                            {visible[scan.id] ? "Hide Image" : "See Image"}
+                        </button>
+
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 // ─────────────────────────────────────────────────────────────
 // Add Treatment Modal
 // ─────────────────────────────────────────────────────────────
@@ -304,6 +377,7 @@ const AddPrescriptionModal = ({ isOpen, onClose, recordId, onSave }) => {
             setLoading(false);
         }
     };
+    
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Add Prescription">
@@ -865,6 +939,8 @@ const MedicalRecords = () => {
     const [loading, setLoading] = useState(true);
     const [newRecordModal, setNewRecordModal] = useState(false);
 
+    const [aiScans, setAiScans] = useState([]);
+
     useEffect(() => {
         axios.get('http://localhost:8000/me', { headers: getHeaders() })
             .then(res => setCurrentUser(res.data))
@@ -884,6 +960,13 @@ const MedicalRecords = () => {
     }, []);
 
     useEffect(() => { fetchRecords(); }, [fetchRecords]);
+    useEffect(() => {
+    axios.get('http://localhost:8000/ai/scan/history', {
+        headers: getHeaders()
+    })
+    .then(res => setAiScans(res.data.scans || []))
+    .catch(err => console.log(err));
+}, []);
 
     const isDoctor = currentUser?.role === 'doctor';
     const Layout = isDoctor ? DashboardLayout : PatientLayout;
@@ -912,12 +995,16 @@ const MedicalRecords = () => {
                     onRecordUpdate={handleRecordUpdate}
                 />
             ) : (
+                <>
+               
+                <AIScanSection scans={aiScans} />
                 <RecordsList
                     records={records}
                     isDoctor={isDoctor}
                     onSelect={setSelectedRecord}
                     onNewRecord={() => setNewRecordModal(true)}
                 />
+                </>
             )}
         </Layout>
     );

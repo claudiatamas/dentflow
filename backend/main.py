@@ -47,6 +47,7 @@ UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 # ==================== FastAPI App ====================
 app = FastAPI(title="Medical Management API", version="1.0.0")
 app.include_router(ai_router)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,7 +64,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 # ==================== Database ====================
 def get_db():
-    """Dependency pentru sesiunea de bază de date"""
     db = SessionLocal()
     try:
         yield db
@@ -73,12 +73,10 @@ def get_db():
 
 # ==================== Auth Utilities ====================
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifică parola (limitată la 72 caractere pentru bcrypt)"""
     return pwd_context.verify(plain_password[:72], hashed_password)
 
 
 def get_password_hash(password: str) -> str:
-    """Hash-uiește parola (limitată la 72 caractere pentru bcrypt)"""
     return pwd_context.hash(password[:72])
 
 
@@ -116,9 +114,7 @@ def get_optional_doctor_id(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user) 
 ) -> Optional[int]:
-    """Returnează ID-ul doctorului doar dacă utilizatorul este doctor."""
     
-
     if current_user["role"] == "doctor":
         doctor = db.query(Doctor).filter(
             Doctor.user_id == current_user["id"]
@@ -138,11 +134,7 @@ def get_current_patient_id(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user) 
 ) -> Optional[int]:
-    """
-    Returnează patient_id dacă utilizatorul este 'patient'.
-    Aruncă 403 dacă nu este 'patient'.
-    """
-    
+
     if current_user["role"] != "patient":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -163,7 +155,6 @@ def get_current_patient_id(
 
 # ==================== User Serialization ====================
 def serialize_user(user: DBUser) -> dict:
-    """Serializează un user cu datele specifice rolului"""
     base_data = {
         "id": user.id,
         "first_name": user.first_name,
@@ -237,7 +228,7 @@ def save_profile_picture(user_id: int, file: UploadFile) -> str:
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="Invalid file")
     
-    # Validare tip fișier
+    
     allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in allowed_extensions:
@@ -246,11 +237,11 @@ def save_profile_picture(user_id: int, file: UploadFile) -> str:
             detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
         )
     
-    # Generare nume unic
+    
     filename = f"user_{user_id}_{datetime.now().timestamp()}{file_ext}"
     file_path = UPLOAD_FOLDER / filename
     
-    # Salvare fișier
+    
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -664,7 +655,7 @@ def add_stock(
         db.add(stock_change)
         db.commit()
 
-        # ── Alertă stoc scăzut ──
+        
         if existing_stock.quantity < material.min_quantity:
             existing_notif = db.query(Notification).filter(
                 Notification.user_id == current_user.id,
@@ -703,7 +694,7 @@ def add_stock(
         db.add(stock_change)
         db.commit()
 
-        # ── Alertă stoc scăzut (și la stock nou) ──
+        
         if new_stock.quantity < material.min_quantity:
             create_notification(db, current_user.id,
                 type="low_stock",
@@ -747,7 +738,7 @@ def update_stock_quantity(
     db.add(stock_change)
     db.commit()
 
-    # ── Alertă stoc scăzut ──
+   
     mat = db.query(Material).filter(Material.id == material_id).first()
     if mat and stock.quantity < mat.min_quantity:
         existing_notif = db.query(Notification).filter(
@@ -915,13 +906,13 @@ def get_my_reviews(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # Găsește mai întâi doctor-ul din tabela doctors
+    
     doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
     if not doctor:
         return []
 
     reviews = db.query(DoctorReview).filter(
-        DoctorReview.doctor_id == doctor.id  # ← ID din tabela doctors
+        DoctorReview.doctor_id == doctor.id  
     ).order_by(DoctorReview.created_at.desc()).all()
 
     for r in reviews:
@@ -1049,7 +1040,7 @@ def get_public_feedback(db: Session = Depends(get_db)):
 
 # ==================== BLOG CRUD ROUTES  ====================
 
-# Folderul unde se salvează pozele de blog
+
 UPLOAD_BLOG_FOLDER = Path("static/uploads/blogs")
 UPLOAD_BLOG_FOLDER.mkdir(parents=True, exist_ok=True)
 
@@ -1097,16 +1088,16 @@ def create_blog_post(
 ):
     """Creează o nouă postare de blog cu posibilitate de upload imagine."""
 
-    # Validări logice
+    
     if post_type == "internal" and not content:
         raise HTTPException(status_code=400, detail="Content is required for internal posts.")
     if post_type == "external" and not external_link:
         raise HTTPException(status_code=400, detail="External link is required for external posts.")
 
-    # Salvare imagine (opțional)
+    
     image_url = save_blog_image(None, featured_image) if featured_image else None
 
-    # Creare postare
+    
     new_blog_post = Blog(
         author_id=current_user.id,
         post_type=post_type,
@@ -1132,7 +1123,7 @@ def list_blog_posts(
     db: Session = Depends(get_db),
     limit: int = Query(20, gt=0, le=100),
     offset: int = Query(0, ge=0),
-    is_active: Optional[bool] = Query(None),  # allow None
+    is_active: Optional[bool] = Query(None),  
     post_type: Optional[str] = Query(None),
     current_user: Optional[DBUser] = Depends(get_current_user)
 ):
@@ -1140,7 +1131,7 @@ def list_blog_posts(
 
     query = db.query(Blog)
 
-    # pentru utilizatori non-admin, ascunde postările inactive dacă nu le cer
+    
     if current_user is None or current_user.role != UserRole.administrator:
         if is_active is None:
             query = query.filter(Blog.is_active == True)
@@ -1357,7 +1348,7 @@ def update_appointment_type(
         update_data.pop("color")
 
     for field, value in update_data.items():
-        setattr(appointment_type, field, value)  # aici poate fi inclus și duration_minutes
+        setattr(appointment_type, field, value)  
 
     db.commit()
     db.refresh(appointment_type)
@@ -1384,7 +1375,7 @@ def delete_appointment_type(
     if not appointment_type:
         raise HTTPException(status_code=404, detail="Appointment type not found")
     
-    # Verifică dacă există programări cu acest tip
+    
     existing_appointments = db.query(Appointment).filter(
         Appointment.appointment_type_id == appointment_type_id
     ).first()
@@ -1425,7 +1416,7 @@ def is_time_slot_available(
 ) -> bool:
     """Returnează True dacă slotul este liber pentru doctor"""
 
-    # Verifică suprapunerea cu alte appointment-uri
+    
     query = db.query(Appointment).filter(
         Appointment.doctor_id == doctor_id,
         Appointment.appointment_date == appointment_date.date()
@@ -1437,19 +1428,19 @@ def is_time_slot_available(
 
     for appt in appointments:
         if (start_time < appt.end_time and end_time > appt.start_time):
-            return False  # Suprapunere găsită
+            return False  
 
-    # Verifică dacă intervalul e în WorkSchedule
+   
     work_schedule = db.query(WorkSchedule).filter(
         WorkSchedule.doctor_id == doctor_id,
         WorkSchedule.day_of_week == appointment_date.weekday()
     ).first()
 
     if not work_schedule:
-        return False  # Doctorul nu lucrează în ziua respectivă
+        return False  
 
     if start_time < work_schedule.start_time or end_time > work_schedule.end_time:
-        return False  # Intervalul nu e în programul de lucru
+        return False 
 
     return True
 
@@ -1457,7 +1448,7 @@ def is_time_slot_available(
 @app.get("/appointments/available-slots")
 def get_available_slots(
     doctor_id: int,
-    date: str,                        # format: "2025-03-15"
+    date: str,                       
     duration_minutes: int = 30,
     exclude_appointment_id: int = None,
     db: Session = Depends(get_db),
@@ -1469,13 +1460,13 @@ def get_available_slots(
     """
     from datetime import datetime, timedelta
 
-    # Parsăm data
+    
     try:
         appointment_date = datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
 
-    # Verificăm work schedule pentru ziua respectivă (0=Mon, 6=Sun)
+    
     work_schedule = db.query(WorkSchedule).filter(
         WorkSchedule.doctor_id == doctor_id,
         WorkSchedule.day_of_week == appointment_date.weekday()
@@ -1484,7 +1475,7 @@ def get_available_slots(
     if not work_schedule:
         return {"slots": [], "message": "Doctor does not work on this day."}
 
-    # Generăm toate sloturile posibile din work schedule
+    
     available_slots = []
     slot_duration = timedelta(minutes=duration_minutes)
 
@@ -1522,18 +1513,18 @@ def get_appointments(
 ):
     """Obține appointment-urile doctorului sau pacientului curent"""
     
-    # ACESTA ESTE PUNCTUL CRITIC: FOLOSIȚI NOTAȚIA CU PUNCT
-    if current_user.role == "doctor": # <--- FĂRĂ PARANTEZE DREPTE
+   
+    if current_user.role == "doctor": 
         
-        # ID-ul trebuie accesat tot cu punct
+        
         doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
         if not doctor:
             raise HTTPException(status_code=404, detail="Doctor profile not found")
         appointments = db.query(Appointment).filter(Appointment.doctor_id == doctor.id).order_by(Appointment.appointment_date).all()
         
-    # DE ASEMENEA AICI: NOTAȚIE CU PUNCT
+    
     elif current_user.role == "patient":
-        # ID-ul trebuie accesat tot cu punct
+        
         patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
         if not patient:
             raise HTTPException(status_code=404, detail="Patient profile not found")
@@ -1557,23 +1548,22 @@ def create_appointment(
     target_patient_id = None
     target_doctor_id = None
     
-    # 1. Verificăm cine creează și extragem ID-urile corespunzătoare
-    # CORECTAT: Folosim notația cu punct (.role)
+   
     if current_user.role == "patient":
-        # Căutăm ID-ul pacientului curent
-        patient = db.query(Patient).filter(Patient.user_id == current_user.id).first() # CORECTAT: .id
+        
+        patient = db.query(Patient).filter(Patient.user_id == current_user.id).first() 
         if not patient:
             raise HTTPException(status_code=404, detail="Patient profile not found.")
             
         target_patient_id = patient.id
-        target_doctor_id = appointment_in.doctor_id  # Pacientul alege doctorul
+        target_doctor_id = appointment_in.doctor_id  
         
-        # Pacientul trebuie să specifice doctorul
+       
         if not target_doctor_id:
              raise HTTPException(status_code=400, detail="Doctor ID required when scheduling as a Patient.")
 
         
-    # CORECTAT: Folosim notația cu punct (.role)
+    
     elif current_user.role == "doctor":
         doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
         if not doctor:
@@ -1584,18 +1574,18 @@ def create_appointment(
         if not appointment_in.patient_id:
             raise HTTPException(status_code=400, detail="Patient ID required when scheduling as a Doctor.")
         
-        # ← ADAUGĂ ASTA: convertește user_id → patient.id
+        
         patient = db.query(Patient).filter(Patient.user_id == appointment_in.patient_id).first()
         if not patient:
             raise HTTPException(status_code=404, detail="Patient profile not found.")
         
-        target_patient_id = patient.id  # acum e 4, nu 7
+        target_patient_id = patient.id 
         
     else:
-        # Rol nepermis (administrator sau alt rol)
+        
         raise HTTPException(status_code=403, detail="Access denied. Only doctors or patients can create appointments.")
 
-    # 2. Verificăm dacă slotul e disponibil pentru doctorul țintă
+    
     available = is_time_slot_available(
         db,
         doctor_id=target_doctor_id,
@@ -1606,7 +1596,7 @@ def create_appointment(
     if not available:
         raise HTTPException(status_code=400, detail="Selected time slot is not available for this doctor.")
 
-    # 3. Creăm programarea
+    
     new_appointment = Appointment(
         patient_id=target_patient_id,
         doctor_id=target_doctor_id,
@@ -1624,7 +1614,7 @@ def create_appointment(
     db.commit()
     db.refresh(new_appointment)
 
-    # ── Notificare doctor: programare nouă ──
+    
     doctor_user = db.query(DBUser).filter(
         DBUser.id == db.query(Doctor).filter(Doctor.id == target_doctor_id).first().user_id
     ).first()
@@ -1635,7 +1625,7 @@ def create_appointment(
             body=f"{current_user.first_name} {current_user.last_name} has requested an appointment.",
             entity_type="appointment", entity_id=new_appointment.id)
 
-    # ── Notificare pacient: confirmare creare ──
+    
     patient_user = db.query(DBUser).filter(
         DBUser.id == db.query(Patient).filter(Patient.id == target_patient_id).first().user_id
     ).first()
@@ -1664,11 +1654,11 @@ def update_appointment(
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
 
-    # Verificăm cine poate modifica - CORECTAT: folosim .role în loc de ["role"]
+   
     if current_user.role == "doctor":
         if appointment.doctor_id != doctor_id:
             raise HTTPException(status_code=403, detail="Access denied")
-        # Doctorul poate modifica orice câmp
+        
         for field, value in appointment_in.dict(exclude_unset=True).items():
             setattr(appointment, field, value)
 
@@ -1676,7 +1666,7 @@ def update_appointment(
         patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
         if appointment.patient_id != patient.id:
             raise HTTPException(status_code=403, detail="Access denied")
-        # Pacientul poate modifica doar anumite câmpuri
+        
         allowed_fields = ["appointment_date", "message", "status"]
         for field, value in appointment_in.dict(exclude_unset=True).items():
             if field in allowed_fields:
@@ -1684,20 +1674,20 @@ def update_appointment(
     else:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Orice modificare duce la status pending (dacă nu se setează explicit alt status)
+    
     if "status" not in appointment_in.dict(exclude_unset=True):
         appointment.status = "pending"
 
     db.commit()
     db.refresh(appointment)
 
-    # ── Notificări status schimbat ──
+    
     new_status = appointment.status
     patient = db.query(Patient).filter(Patient.id == appointment.patient_id).first()
     doctor_obj = db.query(Doctor).filter(Doctor.id == appointment.doctor_id).first()
 
     if current_user.role == "doctor" and patient:
-        # Doctorul a modificat → notifică pacientul
+      
         patient_user = db.query(DBUser).filter(DBUser.id == patient.user_id).first()
         if patient_user:
             status_messages = {
@@ -1713,7 +1703,7 @@ def update_appointment(
                 body=body,
                 entity_type="appointment", entity_id=appointment.id)
 
-            # Dacă finalizat → cere feedback
+         
             if new_status == "finalised":
                 create_notification(db, patient_user.id,
                     type="feedback_request",
@@ -1722,7 +1712,7 @@ def update_appointment(
                     entity_type="appointment", entity_id=appointment.id)
 
     elif current_user.role == "patient" and doctor_obj:
-        # Pacientul a modificat → notifică doctorul
+      
         doctor_user = db.query(DBUser).filter(DBUser.id == doctor_obj.user_id).first()
         if doctor_user:
             create_notification(db, doctor_user.id,
@@ -1759,7 +1749,7 @@ def delete_appointment(
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
 
-    # CORECTAT: folosim .role în loc de ["role"]
+  
     if current_user.role == "doctor":
         if appointment.doctor_id != doctor_id:
             raise HTTPException(status_code=403, detail="Access denied")
@@ -1774,7 +1764,7 @@ def delete_appointment(
     db.commit()
     return None
 
-# ==================== NEW: Patient-Specific Update Endpoint ====================
+# ==================== Patient-Specific Update Endpoint ====================
 
 @app.patch("/appointments/{appointment_id}/patient-request", response_model=AppointmentOut)
 def patient_request_appointment_change(
@@ -1791,42 +1781,42 @@ def patient_request_appointment_change(
     - Verifică disponibilitatea noului slot înainte de salvare
     """
     
-    # 1. Verificăm că user-ul este pacient
+   
     if current_user.role != "patient":
         raise HTTPException(
             status_code=403, 
             detail="Only patients can use this endpoint. Doctors should use the standard update endpoint."
         )
     
-    # 2. Găsim pacientul curent
+
     patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
     
-    # 3. Găsim programarea
+ 
     appointment = db.query(Appointment).filter(Appointment.id == appointment_id).first()
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
     
-    # 4. Verificăm că pacientul este proprietarul programării
+   
     if appointment.patient_id != patient.id:
         raise HTTPException(
             status_code=403, 
             detail="You can only modify your own appointments"
         )
     
-    # 5. Verificăm că programarea nu este deja cancelled
+  
     if appointment.status == "cancelled":
         raise HTTPException(
             status_code=400, 
             detail="Cannot modify a cancelled appointment"
         )
     
-    # 6. Extragem câmpurile permise pentru pacienți
+    
     allowed_fields = ["appointment_date", "start_time", "end_time", "message"]
     update_data = appointment_in.dict(exclude_unset=True)
     
-    # Filtrăm doar câmpurile permise
+   
     filtered_data = {k: v for k, v in update_data.items() if k in allowed_fields}
     
     if not filtered_data:
@@ -1835,21 +1825,21 @@ def patient_request_appointment_change(
             detail="No valid fields to update. Patients can only modify: appointment_date, start_time, end_time, message"
         )
     
-    # 7. Dacă se modifică data sau timpul, verificăm disponibilitatea
+  
     needs_time_check = any(field in filtered_data for field in ["appointment_date", "start_time", "end_time"])
     
     if needs_time_check:
-        # Folosim valorile noi sau păstrăm cele vechi
+     
         new_date = filtered_data.get("appointment_date", appointment.appointment_date)
         new_start = filtered_data.get("start_time", appointment.start_time)
         new_end = filtered_data.get("end_time", appointment.end_time)
         
-        # Convertim la datetime dacă e nevoie
+       
         if isinstance(new_date, str):
             from datetime import datetime
             new_date = datetime.strptime(new_date, "%Y-%m-%d").date()
         
-        # Convertim la time dacă e nevoie
+     
         if isinstance(new_start, str):
             from datetime import datetime
             new_start = datetime.strptime(new_start, "%H:%M:%S").time()
@@ -1857,14 +1847,14 @@ def patient_request_appointment_change(
             from datetime import datetime
             new_end = datetime.strptime(new_end, "%H:%M:%S").time()
         
-        # Verificăm că end_time > start_time
+       
         if new_end <= new_start:
             raise HTTPException(
                 status_code=400, 
                 detail="End time must be after start time"
             )
         
-        # Verificăm disponibilitatea slotului (excluzând appointment-ul curent)
+      
         from datetime import datetime as dt
         check_date = dt.combine(new_date, new_start) if hasattr(new_date, 'year') else dt.strptime(str(new_date), "%Y-%m-%d")
         
@@ -1883,18 +1873,18 @@ def patient_request_appointment_change(
                 detail="The requested time slot is not available. Please choose another time."
             )
     
-    # 8. Aplicăm modificările
+
     for field, value in filtered_data.items():
         setattr(appointment, field, value)
     
-    # 9. Setăm statusul pe 'pending' pentru că pacientul a cerut modificări
+    
     appointment.status = "pending"
     
-    # 10. Salvăm în DB
+   
     db.commit()
     db.refresh(appointment)
 
-    # ── Notifică doctorul ──
+
     doctor_obj = db.query(Doctor).filter(Doctor.id == appointment.doctor_id).first()
     if doctor_obj:
         doctor_user = db.query(DBUser).filter(DBUser.id == doctor_obj.user_id).first()
@@ -1964,24 +1954,24 @@ def get_patient_info(
     Folosit de doctori pentru a afișa detaliile pacienților în appointments.
     """
     
-    # Verificăm că user-ul este doctor
+
     if current_user.role != "doctor":
         raise HTTPException(
             status_code=403, 
             detail="Only doctors can access patient information"
         )
     
-    # Găsim pacientul
+
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     
-    # Găsim user-ul asociat cu pacientul
+
     user = db.query(DBUser).filter(DBUser.id == patient.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User information not found")
     
-    # Returnăm informațiile pacientului
+
     return {
         "id": patient.id,
         "user_id": user.id,
@@ -2006,21 +1996,21 @@ def create_or_update_work_schedule(
     db: Session = Depends(get_db),
     doctor_id: int = Depends(get_current_doctor_id)
 ):
-    # caută dacă există deja o zi pentru doctor
+
     schedule = db.query(WorkSchedule).filter(
         WorkSchedule.doctor_id == doctor_id,
         WorkSchedule.day_of_week == schedule_in.day_of_week
     ).first()
 
     if schedule:
-        # UPDATE dacă există
+
         for field, value in schedule_in.dict(exclude_unset=True).items():
             setattr(schedule, field, value)
         db.commit()
         db.refresh(schedule)
         return schedule
     else:
-        # CREATE dacă nu există
+
         new_schedule = WorkSchedule(
             doctor_id=doctor_id,
             day_of_week=schedule_in.day_of_week,
@@ -2090,7 +2080,7 @@ def get_schedule_for_day(doctor_id: int, date: str, db: Session = Depends(get_db
     if not schedule:
         return {"workHours": None, "busySlots": []}
 
-    # Obține programările existente pentru ziua respectivă
+
     busy_appointments = db.query(Appointment).filter(
         Appointment.doctor_id == doctor_id,
         Appointment.appointment_date == date
@@ -2191,11 +2181,11 @@ def create_user_by_admin(
             detail="Access denied. Only administrators can create users."
         )
     
-    # Check if email already exists
+
     if db.query(DBUser).filter(DBUser.email == user_data.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Create new user
+
     new_user = DBUser(
         first_name=user_data.first_name,
         last_name=user_data.last_name,
@@ -2217,7 +2207,7 @@ def create_user_by_admin(
     db.commit()
     db.refresh(new_user)
     
-    # Create role-specific profile
+
     if user_data.role == UserRole.doctor:
         doctor = Doctor(
             user_id=new_user.id,
@@ -2263,7 +2253,7 @@ def update_user_by_admin(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Update basic fields
+
     allowed_fields = [
         "first_name", "last_name", "email", "phone", "gender",
         "country", "county", "city", "address", "status", "birth_date"
@@ -2273,7 +2263,7 @@ def update_user_by_admin(
         if field in update_data and update_data[field] is not None:
             setattr(user, field, update_data[field])
     
-    # Update doctor-specific fields
+
     if user.role == UserRole.doctor and "doctor" in update_data:
         doctor = db.query(Doctor).filter(Doctor.user_id == user.id).first()
         if doctor:
@@ -2284,7 +2274,7 @@ def update_user_by_admin(
             if "accreditation" in update_data["doctor"]:
                 doctor.accreditation = update_data["doctor"]["accreditation"]
     
-    # Update patient-specific fields
+  
     if user.role == UserRole.patient and "patient" in update_data:
         patient = db.query(Patient).filter(Patient.user_id == user.id).first()
         if patient and "description" in update_data["patient"]:
@@ -2320,14 +2310,14 @@ def delete_user_by_admin(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Prevent deleting yourself
+
     if user.id == current_user.id:
         raise HTTPException(
             status_code=400,
             detail="You cannot delete your own account"
         )
     
-    # Delete profile picture if exists
+
     if user.profile_picture:
         try:
             profile_pic_path = UPLOAD_FOLDER / user.profile_picture.split('/')[-1]
@@ -2336,7 +2326,7 @@ def delete_user_by_admin(
         except Exception as e:
             print(f"Error deleting profile picture: {e}")
     
-    # Delete role-specific data (CASCADE will handle related records)
+
     if user.role == UserRole.doctor:
         doctor = db.query(Doctor).filter(Doctor.user_id == user.id).first()
         if doctor:
@@ -2365,7 +2355,7 @@ def get_conversations(
     Returns a list of all unique conversations for the current user,
     showing the last message and unread count for each.
     """
-    # Find all unique users the current user has chatted with
+
     sent_to = db.query(Message.receiver_id.label("other_id")).filter(
         Message.sender_id == current_user.id
     )
@@ -2373,19 +2363,19 @@ def get_conversations(
         Message.receiver_id == current_user.id
     )
     
-    # Union of all conversation partners
+
     conversation_partner_ids = sent_to.union(received_from).all()
     partner_ids = [row.other_id for row in conversation_partner_ids]
 
     conversations = []
 
     for partner_id in partner_ids:
-        # Get the other user
+
         other_user = db.query(DBUser).filter(DBUser.id == partner_id).first()
         if not other_user:
             continue
 
-        # Get last message
+
         last_message = db.query(Message).filter(
             or_(
                 and_(Message.sender_id == current_user.id, Message.receiver_id == partner_id),
@@ -2396,7 +2386,7 @@ def get_conversations(
         if not last_message:
             continue
 
-        # Count unread messages from this partner
+
         unread_count = db.query(func.count(Message.id)).filter(
             Message.sender_id == partner_id,
             Message.receiver_id == current_user.id,
@@ -2415,7 +2405,7 @@ def get_conversations(
             "unread_count": unread_count or 0
         })
 
-    # Sort by last message timestamp descending
+
     conversations.sort(key=lambda x: x["last_message_timestamp"], reverse=True)
     return conversations
 
@@ -2445,12 +2435,12 @@ def get_messages(
     Returns all messages between the current user and another user.
     Also marks all incoming messages as read.
     """
-    # Verify the other user exists
+ 
     other_user = db.query(DBUser).filter(DBUser.id == other_user_id).first()
     if not other_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Mark all messages from other_user to current_user as read
+
     db.query(Message).filter(
         Message.sender_id == other_user_id,
         Message.receiver_id == current_user.id,
@@ -2458,7 +2448,7 @@ def get_messages(
     ).update({"is_read": True})
     db.commit()
 
-    # Fetch messages between the two users
+ 
     messages = db.query(Message).filter(
         or_(
             and_(Message.sender_id == current_user.id, Message.receiver_id == other_user_id),
@@ -2492,16 +2482,16 @@ def send_message(
     db: Session = Depends(get_db)
 ):
     """Send a message to another user."""
-    # Verify receiver exists
+ 
     receiver = db.query(DBUser).filter(DBUser.id == msg_data.receiver_id).first()
     if not receiver:
         raise HTTPException(status_code=404, detail="Receiver not found")
 
-    # Prevent sending message to yourself
+
     if msg_data.receiver_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot send message to yourself")
 
-    # Validate appointment_id if provided
+  
     if msg_data.appointment_id:
         appointment = db.query(Appointment).filter(
             Appointment.id == msg_data.appointment_id
@@ -2522,7 +2512,6 @@ def send_message(
     db.commit()
     db.refresh(new_message)
 
-    # ── Notificare receptor ──
     create_notification(db, msg_data.receiver_id,
         type="new_message",
         title="New Message",
@@ -2576,7 +2565,7 @@ def get_doctor_appointment_patients(
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor profile not found")
 
-    # patient_id din appointments → tabela patients → user_id → tabela users
+
     patient_records = db.query(Patient)\
         .join(Appointment, Appointment.patient_id == Patient.id)\
         .filter(Appointment.doctor_id == doctor.id)\
@@ -2606,7 +2595,7 @@ DOCUMENTS_FOLDER = Path("static/uploads/medical_documents")
 DOCUMENTS_FOLDER.mkdir(parents=True, exist_ok=True)
 
 
-# ── Helpers ──────────────────────────────────────────────────
+# Helpers 
 
 def serialize_medical_record(record: MedicalRecord, db: Session) -> dict:
     patient_user = db.query(DBUser).filter(DBUser.id == record.patient.user_id).first()
@@ -2801,7 +2790,7 @@ def update_medical_record(
     db.commit()
     db.refresh(record)
 
-    # ── Notifică pacientul ──
+  
     patient_obj = db.query(Patient).filter(Patient.id == record.patient_id).first()
     if patient_obj:
         create_notification(db, patient_obj.user_id,
@@ -2865,7 +2854,7 @@ def add_treatment(
     db.commit()
     db.refresh(treatment)
 
-    # ── Notifică pacientul ──
+
     patient_obj = db.query(Patient).filter(Patient.id == record.patient_id).first()
     if patient_obj:
         create_notification(db, patient_obj.user_id,
@@ -2958,7 +2947,7 @@ def add_prescription(
     db.commit()
     db.refresh(prescription)
 
-    # ── Notifică pacientul ──
+  
     patient_obj = db.query(Patient).filter(Patient.id == record.patient_id).first()
     if patient_obj:
         create_notification(db, patient_obj.user_id,
@@ -3073,7 +3062,7 @@ def upload_document(
     db.commit()
     db.refresh(doc)
 
-    # file_url nu e stocat în model, îl construim la returnare
+
     return {
         "id":             doc.id,
         "file_name":      doc.file_name,
@@ -3177,7 +3166,7 @@ def serialize_ticket(ticket: SupportTicket, db: Session) -> dict:
 
 
 # ---------------------------
-# CREATE Ticket (with optional file)
+# CREATE Ticket 
 # ---------------------------
 @app.post("/support-tickets", status_code=status.HTTP_201_CREATED)
 async def create_support_ticket(
@@ -3210,7 +3199,7 @@ async def create_support_ticket(
     db.commit()
     db.refresh(ticket)
 
-    # ── Notifică toți adminii ──
+   
     admins = db.query(DBUser).filter(DBUser.role == UserRole.administrator).all()
     for admin in admins:
         create_notification(db, admin.id,
@@ -3276,7 +3265,7 @@ def get_ticket(
 
 
 # ---------------------------
-# UPDATE Ticket Status / Priority (admin only)
+# UPDATE Ticket Status / Priority 
 # ---------------------------
 @app.patch("/support-tickets/{ticket_id}/status")
 def update_ticket_status(
@@ -3324,7 +3313,7 @@ def add_ticket_message(
     )
     db.add(msg)
 
-    # Auto-set to in_progress when admin replies to open ticket
+   
     if current_user.role == UserRole.administrator and ticket.status == "open":
         ticket.status = "in_progress"
 
@@ -3332,16 +3321,16 @@ def add_ticket_message(
     db.commit()
     db.refresh(ticket)
 
-    # ── Notificări mesaj nou în ticket ──
+
     if current_user.role == UserRole.administrator:
-        # Admin a răspuns → notifică proprietarul
+ 
         create_notification(db, ticket.user_id,
             type="ticket_update",
             title="New Reply on Your Ticket",
             body=f"Support replied to your ticket: \"{ticket.subject}\".",
             entity_type="ticket", entity_id=ticket.id)
     else:
-        # Userul a scris → notifică toți adminii
+       
         admins = db.query(DBUser).filter(DBUser.role == UserRole.administrator).all()
         for admin in admins:
             create_notification(db, admin.id,
@@ -3366,7 +3355,6 @@ def get_admin_stats(
     if current_user.role != UserRole.administrator:
         raise HTTPException(status_code=403, detail="Admin only")
 
-    # ── Totals ────────────────────────────────────────────────
     total_users        = db.query(func.count(DBUser.id)).scalar()
     total_doctors      = db.query(func.count(Doctor.id)).scalar()
     total_patients     = db.query(func.count(Patient.id)).scalar()
@@ -3376,7 +3364,7 @@ def get_admin_stats(
     total_tickets      = db.query(func.count(SupportTicket.id)).scalar()
     open_tickets       = db.query(func.count(SupportTicket.id)).filter(SupportTicket.status == "open").scalar()
 
-    # ── User growth — last 6 months ───────────────────────────
+
     user_growth = []
     now = datetime.utcnow()
     for i in range(5, -1, -1):
@@ -3390,7 +3378,7 @@ def get_admin_stats(
             "users": count or 0,
         })
 
-    # ── Appointments per month — last 6 months ────────────────
+
     appts_per_month = []
     for i in range(5, -1, -1):
         d = datetime(now.year, now.month, 1) - __import__('dateutil.relativedelta', fromlist=['relativedelta']).relativedelta(months=i)
@@ -3403,26 +3391,25 @@ def get_admin_stats(
             "appointments": count or 0,
         })
 
-    # ── Appointments by status ────────────────────────────────
+  
     status_rows = db.query(
         Appointment.status, func.count(Appointment.id)
     ).group_by(Appointment.status).all()
     appts_by_status = [{"status": s, "count": c} for s, c in status_rows]
 
-    # ── Appointments by specialty ─────────────────────────────
     specialty_rows = db.query(
         Doctor.specialty, func.count(Appointment.id)
     ).join(Appointment, Appointment.doctor_id == Doctor.id)\
      .group_by(Doctor.specialty).all()
     appts_by_specialty = [{"specialty": s or "Unknown", "count": c} for s, c in specialty_rows]
 
-    # ── Support tickets by status ─────────────────────────────
+   
     ticket_rows = db.query(
         SupportTicket.status, func.count(SupportTicket.id)
     ).group_by(SupportTicket.status).all()
     tickets_by_status = [{"status": s, "count": c} for s, c in ticket_rows]
 
-    # ── Blog posts per month — last 6 months ──────────────────
+    
     blogs_per_month = []
     for i in range(5, -1, -1):
         d = datetime(now.year, now.month, 1) - __import__('dateutil.relativedelta', fromlist=['relativedelta']).relativedelta(months=i)
@@ -3435,13 +3422,13 @@ def get_admin_stats(
             "posts": count or 0,
         })
 
-    # ── Doctors vs Patients ratio ─────────────────────────────
+   
     user_role_split = [
         {"role": "Doctors",  "count": total_doctors},
         {"role": "Patients", "count": total_patients},
     ]
 
-    # ── Recent tickets (last 5) ───────────────────────────────
+ 
     recent_tickets = db.query(SupportTicket)\
         .order_by(SupportTicket.created_at.desc())\
         .limit(5).all()
@@ -3458,7 +3445,7 @@ def get_admin_stats(
             "created_at":     t.created_at,
         })
 
-    # ── Recent users (last 5) ─────────────────────────────────
+   
     recent_users = db.query(DBUser)\
         .order_by(DBUser.creation_date.desc())\
         .limit(5).all()
@@ -3507,7 +3494,7 @@ scheduler.add_job(lambda: create_appointment_reminder(SessionLocal()), 'cron', h
 scheduler.add_job(lambda: create_weekly_signup_summary(SessionLocal()), 'cron', day_of_week='sun', hour=20)
 scheduler.start()
 
-# ── Helper: create a notification ────────────────────────────
+# Helper: create a notification
 def create_notification(
     db: Session,
     user_id: int,
@@ -3601,7 +3588,7 @@ def check_low_stock_and_notify(db: Session, doctor_id: int, doctor_user_id: int)
     for stock in stocks:
         material = db.query(Material).filter(Material.id == stock.material_id).first()
         if material and stock.quantity < material.min_quantity:
-            # Avoid duplicate unread low_stock notifications for same material
+          
             existing = db.query(Notification).filter(
                 Notification.user_id == doctor_user_id,
                 Notification.type == "low_stock",
@@ -3640,8 +3627,7 @@ def notify_feedback_request(db: Session, appointment_id: int):
     db.commit()
 
 
-# ── API Routes ────────────────────────────────────────────────
-
+# API Routes 
 
 
 @app.get("/notifications/unread-count")

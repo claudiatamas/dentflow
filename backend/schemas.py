@@ -262,7 +262,7 @@ class BlogRead(BlogBase):
 
 
 # ==================== APPOINTMENTS ====================
-# ---- AppointmentType ----
+# AppointmentType
 class AppointmentTypeBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -290,7 +290,7 @@ class AppointmentTypeOut(AppointmentTypeBase):
     class Config:
         from_attributes = True
 
-# ---- Appointment ----
+# Appointment
 class AppointmentBase(BaseModel):
     doctor_id: int
     patient_id: int
@@ -327,7 +327,7 @@ class AppointmentOut(AppointmentBase):
         from_attributes = True
 
 
-# ---- Work Schedule ----
+# Work Schedule
 class WorkScheduleBase(BaseModel):
     day_of_week: int
     start_time: time
@@ -355,7 +355,7 @@ class WorkScheduleOut(WorkScheduleBase):
 
 
 # ============= CHAT =================
-# ── Request Schemas ──────────────────────────────────────────
+# Request Schemas
 class MessageCreate(BaseModel):
     receiver_id: int
     content: str
@@ -371,10 +371,10 @@ class MessageCreate(BaseModel):
 
 
 class MessageMarkRead(BaseModel):
-    message_ids: Optional[List[int]] = None  # None = mark all from sender
+    message_ids: Optional[List[int]] = None 
 
 
-# ── Response Schemas ─────────────────────────────────────────
+# Response Schemas
 class MessageResponse(BaseModel):
     id: int
     sender_id: int
@@ -588,7 +588,7 @@ class TicketMessageCreate(BaseModel):
 
 
 
-# ── Doctor Review ─────────────────────────────────────────────
+# Doctor Review 
 class DoctorReviewCreate(BaseModel):
     appointment_id: int
     stars:          int = Field(..., ge=1, le=5)
@@ -602,7 +602,7 @@ class DoctorReviewOut(BaseModel):
     stars:          int
     message:        Optional[str]
     created_at:     datetime
-    patient_name:   Optional[str] = None   # joined in route
+    patient_name:   Optional[str] = None  
 
     class Config:
         from_attributes = True
@@ -611,7 +611,7 @@ class DoctorRatingSummary(BaseModel):
     average_stars: float
     total_reviews: int
 
-# ── App Feedback ──────────────────────────────────────────────
+# App Feedback
 class AppFeedbackCreate(BaseModel):
     stars:   int = Field(..., ge=1, le=5)
     message: Optional[str] = None
@@ -623,5 +623,18 @@ class AppFeedbackOut(BaseModel):
     message:    Optional[str]
     created_at: datetime
 
+    class Config:
+        from_attributes = True
+
+
+class AIScanHistoryOut(BaseModel):
+    id:            int
+    scan_mode:     str
+    model_used:    str
+    image_path:    Optional[str]
+    top_condition: Optional[str]
+    results:       List[Any]
+    created_at:    datetime
+ 
     class Config:
         from_attributes = True
