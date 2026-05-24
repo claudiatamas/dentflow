@@ -4,10 +4,12 @@ import {
     Plus, ChevronRight, ChevronDown, User, Droplets, AlertCircle,
     Activity, FileText, Pill, Paperclip, Trash2, Upload, X,
     Edit3, Save, XCircle, Download, Eye, Calendar, DollarSign,
-    Clock, CheckCircle, Loader2, Search, Stethoscope
+    Clock, CheckCircle, Loader2, Search, Stethoscope, FileImage
 } from 'lucide-react';
 import DashboardLayout from '../components/DashboardLayout';
 import PatientLayout from '../components/PatientLayout';
+import AIScanSection from './AIScanSection';
+import XRayTab from '../components/XRayTab';
 
 const getHeaders = () => {
     const token = localStorage.getItem('access_token');
@@ -207,73 +209,7 @@ const NewRecordModal = ({ isOpen, onClose, onSave }) => {
     );
 };
 
-const AIScanSection = ({ scans }) => {
-    const [visible, setVisible] = useState({});
 
-    const toggle = (id) => {
-        setVisible(prev => ({
-            ...prev,
-            [id]: !prev[id]
-        }));
-    };
-
-    if (!scans || scans.length === 0) return null;
-
-    return (
-        <div className="mb-6">
-            <h2 className="text-lg font-semibold mb-3 text-gray-800">
-                AI Scan History
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {scans.map(scan => (
-                    <div key={scan.id} className="bg-white border rounded-2xl p-4">
-
-                        {/* TITLU */}
-                        <p className="font-semibold text-sm">
-                            {scan.top_condition}
-                        </p>
-
-                        {/* DATA */}
-                        <p className="text-xs text-gray-400 mb-2">
-                            {new Date(scan.created_at).toLocaleDateString()}
-                        </p>
-
-                        {/* REZULTAT SCURT */}
-                        <div className="text-xs text-gray-600 mb-3">
-                            {scan.results?.slice(0, 2).map((r, i) => (
-                                <p key={i}>
-                                    {r.icon} {r.condition} ({r.confidence}%)
-                                </p>
-                            ))}
-                        </div>
-
-                        {/* IMAGINE */}
-                        {visible[scan.id] ? (
-                            <img
-                                src={getImageUrl(scan.image_path)}
-                                className="w-full rounded-xl border"
-                            />
-                        ) : (
-                            <div className="h-32 bg-gray-100 rounded-xl flex items-center justify-center text-xs text-gray-400">
-                                Image hidden
-                            </div>
-                        )}
-
-                        {/* BUTON */}
-                        <button
-                            onClick={() => toggle(scan.id)}
-                            className="mt-3 px-3 py-1.5 bg-[#1C398E] text-white rounded-xl text-sm"
-                        >
-                            {visible[scan.id] ? "Hide Image" : "See Image"}
-                        </button>
-
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
 // ─────────────────────────────────────────────────────────────
 // Add Treatment Modal
 // ─────────────────────────────────────────────────────────────
@@ -642,6 +578,7 @@ const RecordDetail = ({ record, isDoctor, onBack, onRecordUpdate }) => {
         { id: 'treatments',   label: 'Treatments',   icon: <Activity size={15} />,  count: localRecord.treatments.length },
         { id: 'prescriptions',label: 'Prescriptions',icon: <Pill size={15} />,       count: localRecord.prescriptions.length },
         { id: 'documents',    label: 'Documents',    icon: <Paperclip size={15} />,  count: localRecord.documents.length },
+        { id: 'xray', label: 'X-Ray', icon: <FileImage size={15}/>}
     ];
 
     const handleDelete = async () => {
@@ -812,6 +749,14 @@ const RecordDetail = ({ record, isDoctor, onBack, onRecordUpdate }) => {
                                 )
                             }
                         </>
+                    )}
+
+                    {activeTab === 'xrays' && (
+                        <XRayTab
+                            recordId={localRecord.id}
+                            initialXrays={localRecord.xrays || []}
+                            isDoctor={isDoctor}
+                        />
                     )}
                 </div>
             </div>

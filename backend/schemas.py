@@ -533,6 +533,7 @@ class MedicalRecordResponse(BaseModel):
     treatments:         List[TreatmentResponse]
     prescriptions:      List[PrescriptionResponse]
     documents:          List[MedicalDocumentResponse]
+    
 
     class Config:
         from_attributes = True
@@ -635,6 +636,26 @@ class AIScanHistoryOut(BaseModel):
     top_condition: Optional[str]
     results:       List[Any]
     created_at:    datetime
+ 
+    class Config:
+        from_attributes = True
+
+
+VALID_XRAY_TYPES = {"panoramic", "periapical", "bitewing", "occlusal", "cephalometric", "cbct", "other"}
+ 
+class XRayOut(BaseModel):
+    id:                int
+    medical_record_id: int
+    file_path:         str
+    file_name:         str
+    file_size:         Optional[int]    = None
+    xray_type:         str
+    tooth_number:      Optional[str]    = None
+    title:             Optional[str]    = None
+    notes:             Optional[str]    = None
+    taken_date:        Optional[date]   = None
+    uploaded_by:       Optional[int]    = None
+    created_at:        datetime
  
     class Config:
         from_attributes = True

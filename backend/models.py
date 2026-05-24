@@ -267,6 +267,7 @@ class MedicalRecord(Base):
     treatments    = relationship("Treatment",       back_populates="medical_record", cascade="all, delete-orphan")
     prescriptions = relationship("Prescription",    back_populates="medical_record", cascade="all, delete-orphan")
     documents     = relationship("MedicalDocument", back_populates="medical_record", cascade="all, delete-orphan")
+    xrays = relationship("XRay", back_populates="medical_record", cascade="all, delete-orphan")
 
 
 class Treatment(Base):
@@ -386,3 +387,23 @@ class AIScanHistory(Base):
     created_at     = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     patient = relationship("Patient", back_populates="ai_scans")
+
+
+class XRay(Base):
+    __tablename__ = "xrays"
+ 
+    id                = Column(Integer, primary_key=True, index=True)
+    medical_record_id = Column(Integer, ForeignKey("medical_records.id", ondelete="CASCADE"), nullable=False)
+    file_path         = Column(String(500), nullable=False)
+    file_name         = Column(String(255), nullable=False)
+    file_size         = Column(Integer, nullable=True)
+    xray_type         = Column(String(50), nullable=False, default="other")
+    tooth_number      = Column(String(50), nullable=True)
+    title             = Column(String(200), nullable=True)
+    notes             = Column(Text, nullable=True)
+    taken_date        = Column(Date, nullable=True)
+    uploaded_by       = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at        = Column(TIMESTAMP(timezone=True), server_default=func.now())
+ 
+    medical_record    = relationship("MedicalRecord", back_populates="xrays")
+    uploader          = relationship("User", foreign_keys=[uploaded_by])

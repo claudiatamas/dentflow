@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, time
 from typing import Optional, List, Any, Dict
 from pathlib import Path
 import shutil
+import uuid
 import os
 from fastapi.staticfiles import StaticFiles
 from collections import defaultdict
@@ -34,7 +35,8 @@ from models import (
     TicketMessage,
     Notification,
     AppFeedback,
-    DoctorReview
+    DoctorReview, 
+    XRay
 )
 from schemas import *
 # ==================== Configuration ====================
@@ -3722,3 +3724,169 @@ def delete_notification(
     return {"ok": True}
 
 
+
+XRAY_DIR            = Path("static/xrays")
+XRAY_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_XRAY_MB         = 15
+ 
+ 
+# ── POST /medical-records/{record_id}/xrays ──────────────────
+@app.post("/medical-records/{record_id}/xrays", response_model=XRayOut, status_code=201)
+async def upload_xray(
+    record_id:    int,
+    file:         UploadFile       = File(...),
+    xray_type:    str              = Form("other"),
+    tooth_number: Optional[str]    = Form(None),
+    title:        Optional[str]    = Form(None),
+    notes:        Optional[str]    = Form(None),
+    taken_date:   Optional[str]    = Form(None),
+    db:           Session          = Depends(get_db),
+    current_user                   = Depends(get_current_user),
+):
+    if current_user.role != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can upload X-Rays.")
+ 
+    record = db.query(MedicalRecord).filter(
+        MedicalRecord.id        == record_id,
+        MedicalRecord.doctor_id == current_user.doctor_profile.id,
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Medical record not found.")
+ 
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only image files are accepted (JPG, PNG, WEBP).")
+ 
+    contents = await file.read()
+    if len(contents) > MAX_XRAY_MB * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File exceeds {MAX_XRAY_MB}MB limit.")
+ 
+    ext       = Path(file.filename).suffix.lower() or ".jpg"
+    filename  = f"{uuid.uuid4().hex}{ext}"
+    file_path = XRAY_DIR / filename
+    with open(file_path, "wb") as f:
+        f.write(contents)
+ 
+    parsed_date = None
+    if taken_date:
+        try:
+            parsed_date = date.fromisoformat(taken_date)
+        except ValueError:
+            pass
+ 
+    xray = XRay(
+        medical_record_id = record_id,
+        file_path         = f"static/xrays/{filename}",
+        file_name         = file.filename,
+        file_size         = len(contents),
+        xray_type         = xray_type if xray_type in VALID_XRAY_TYPES else "other",
+        tooth_number      = tooth_number or None,
+        title             = title or None,
+        notes             = notes or None,
+        taken_date        = parsed_date,
+        uploaded_by       = current_user.id,
+    )
+    db.add(xray)
+    db.commit()
+    db.refresh(xray)
+    return xray
+ 
+ 
+# ── GET /medical-records/{record_id}/xrays ───────────────────
+@app.get("/medical-records/{record_id}/xrays", response_model=list[XRayOut])
+def get_xrays(
+    record_id:   int,
+    db:          Session = Depends(get_db),
+    current_user          = Depends(get_current_user),
+):
+    record = db.query(MedicalRecord).filter(MedicalRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Medical record not found.")
+ 
+    if current_user.role == "patient":
+        patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
+        if not patient or record.patient_id != patient.id:
+            raise HTTPException(status_code=403, detail="Access denied.")
+ 
+    if current_user.role == "doctor":
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor or record.doctor_id != doctor.id:
+            raise HTTPException(status_code=403, detail="Access denied.")
+ 
+    return (
+        db.query(XRay)
+        .filter(XRay.medical_record_id == record_id)
+        .order_by(XRay.created_at.desc())
+        .all()
+    )
+ 
+ 
+# ── PATCH /medical-records/xrays/{xray_id} ───────────────────
+@app.patch("/medical-records/xrays/{xray_id}", response_model=XRayOut)
+def update_xray(
+    xray_id:      int,
+    xray_type:    Optional[str] = Form(None),
+    tooth_number: Optional[str] = Form(None),
+    title:        Optional[str] = Form(None),
+    notes:        Optional[str] = Form(None),
+    taken_date:   Optional[str] = Form(None),
+    db:           Session       = Depends(get_db),
+    current_user                = Depends(get_current_user),
+):
+    if current_user.role != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can edit X-Rays.")
+ 
+    xray = db.query(XRay).filter(XRay.id == xray_id).first()
+    if not xray:
+        raise HTTPException(status_code=404, detail="X-Ray not found.")
+ 
+    record = db.query(MedicalRecord).filter(MedicalRecord.id == xray.medical_record_id).first()
+    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+    if not record or not doctor or record.doctor_id != doctor.id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+ 
+    if xray_type    is not None:
+        xray.xray_type    = xray_type if xray_type in VALID_XRAY_TYPES else "other"
+    if tooth_number is not None:
+        xray.tooth_number = tooth_number or None
+    if title        is not None:
+        xray.title        = title or None
+    if notes        is not None:
+        xray.notes        = notes or None
+    if taken_date   is not None:
+        try:
+            xray.taken_date = date.fromisoformat(taken_date)
+        except ValueError:
+            pass
+ 
+    db.commit()
+    db.refresh(xray)
+    return xray
+ 
+ 
+# ── DELETE /medical-records/xrays/{xray_id} ──────────────────
+@app.delete("/medical-records/xrays/{xray_id}", status_code=200)
+def delete_xray(
+    xray_id:     int,
+    db:          Session = Depends(get_db),
+    current_user          = Depends(get_current_user),
+):
+    if current_user.role != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can delete X-Rays.")
+ 
+    xray = db.query(XRay).filter(XRay.id == xray_id).first()
+    if not xray:
+        raise HTTPException(status_code=404, detail="X-Ray not found.")
+ 
+    record = db.query(MedicalRecord).filter(MedicalRecord.id == xray.medical_record_id).first()
+    doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+    if not record or not doctor or record.doctor_id != doctor.id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+ 
+    path = Path(xray.file_path)
+    if path.exists():
+        path.unlink()
+ 
+    db.delete(xray)
+    db.commit()
+    return {"message": "X-Ray deleted successfully."}
